@@ -1,3 +1,4 @@
+from email import message
 import telebot
 from telebot import types
 import json
@@ -38,18 +39,31 @@ def start_message(message):
   bot.send_message(message.chat.id,f"Привет ✌️ {message.from_user.first_name}",reply_markup=key)
   print(f"{message.from_user.first_name}:{message.from_user.id}")
 
-@bot.message_handler(commands=["sendText"])
+@bot.message_handler(commands=["sendText"]) #1.1
 def text(message):
   txt = message.text.split()
   bot.send_message(int(txt[1])," ".join(txt[2:len(txt)]))
 
-@bot.message_handler(commands=["sendVoice"])
+@bot.message_handler(commands=["sendVoice"]) #1.1
 def text(message):
   global speaker
   txt = message.text.split()
   speaker.save_to_file(" ".join(txt[2:len(txt)]),"voice.mp3")
   speaker.runAndWait()
   bot.send_voice(int(txt[1]),types.InputFile("voice.mp3"))
+
+@bot.message_handler(commands=["log"]) #1.2
+def printLog(message):
+  with open("messages.log") as f:
+    if f.read()=="":
+      bot.send_message(message.chat.id,"Логи пусты!")
+      return
+  bot.send_document(message.chat.id,types.InputFile("messages.log"))
+
+@bot.message_handler(commands=["clearLog"]) #1.2
+def clearLog(message):
+  with open("messages.log","w") as file:file.write("")
+  bot.send_message(message.chat.id,"Отчистила логи.")
 
 @bot.message_handler(commands=["homework"])
 def get_homework(message):
