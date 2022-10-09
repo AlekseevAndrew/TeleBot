@@ -1,9 +1,12 @@
 import telebot
 from telebot import types
 import json
+import pyttsx3
 from time import time
 
+speaker = pyttsx3.init()
 sets = None
+stikers = {}
 timeout = 0
 
 with open("config.json",encoding="UTF-8") as file:
@@ -34,6 +37,19 @@ def start_message(message):
   key.add(types.KeyboardButton("Что задали?"))
   bot.send_message(message.chat.id,f"Привет ✌️ {message.from_user.first_name}",reply_markup=key)
   print(f"{message.from_user.first_name}:{message.from_user.id}")
+
+@bot.message_handler(commands=["sendText"])
+def text(message):
+  txt = message.text.split()
+  bot.send_message(int(txt[1])," ".join(txt[2:len(txt)]))
+
+@bot.message_handler(commands=["sendVoice"])
+def text(message):
+  global speaker
+  txt = message.text.split()
+  speaker.save_to_file(" ".join(txt[2:len(txt)]),"voice.mp3")
+  speaker.runAndWait()
+  bot.send_voice(int(txt[1]),types.InputFile("voice.mp3"))
 
 @bot.message_handler(commands=["homework"])
 def get_homework(message):
