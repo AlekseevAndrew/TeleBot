@@ -1,4 +1,4 @@
-from email import message
+import os
 import telebot
 from telebot import types
 import json
@@ -9,6 +9,14 @@ speaker = pyttsx3.init()
 sets = None
 stikers = {}
 timeout = 0
+users = {}
+
+if not "users.json" in os.listdir():
+  with open("users.json","w",encoding="UTF-8") as file:
+    file.write("{}")
+
+with open("users.json",encoding="UTF-8") as file:
+  users = json.loads(file.read())
 
 with open("config.json",encoding="UTF-8") as file:
   config = json.loads(file.read())
@@ -31,6 +39,13 @@ def set_hw():
   global homework
   with open("homework.json","w",encoding="UTF-8") as f:
     f.write(json.dumps(homework,indent=4,ensure_ascii=False))
+
+def user(message):
+  global users
+  if not message.from_user.id in users.keys():
+    users[message.from_user.id]={"username":message.from_user.username,"first_name":message.from_user.first_name,"last_name":message.from_user.last_name}
+    with open("users.json","w",encoding="UTF-8") as file:
+      file.write(json.dumps(users,indent=4,ensure_ascii=False))
 
 @bot.message_handler(commands=['start'])
 def start_message(message):
@@ -64,6 +79,19 @@ def printLog(message):
 def clearLog(message):
   with open("messages.log","w") as file:file.write("")
   bot.send_message(message.chat.id,"Отчистила логи.")
+
+@bot.message_handler(commands=["version"]) #1.3
+def version(message):
+  global config
+  bot.send_message(message.chat.id,str(config["version"]))
+
+@bot.message_handler(commands=["users"]) #1.3
+def usersLog(message):
+  with open("users.json") as f:
+    if f.read()=="":
+      bot.send_message(message.chat.id,"пусто")
+      return
+  bot.send_document(message.chat.id,types.InputFile("users.json"))
 
 @bot.message_handler(commands=["homework"])
 def get_homework(message):
@@ -101,7 +129,8 @@ def text(message):
   global sets
   global homework
 
-  log(f"user_id:{message.from_user.id} | first_name:{message.from_user.first_name} | chat_id:{message.chat.id} | chat_title:{message.chat.title} | message_text:{message.text}")
+  user(message)
+  log(f"{message.from_user.id}:{message.text}")
   if message.text=="Что задали?": get_homework(message=message)
 
   if not sets==None:
