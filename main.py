@@ -5,6 +5,7 @@ import json
 import pyttsx3
 from time import time
 
+setc = None
 speaker = pyttsx3.init()
 sets = None
 stikers = {}
@@ -40,9 +41,9 @@ def set_hw():
   with open("homework.json","w",encoding="UTF-8") as f:
     f.write(json.dumps(homework,indent=4,ensure_ascii=False))
 
-def user(message):
+def user(message): #1.3
   global users
-  if not message.from_user.id in users.keys():
+  if not str(message.from_user.id) in list(users.keys()):
     users[message.from_user.id]={"username":message.from_user.username,"first_name":message.from_user.first_name,"last_name":message.from_user.last_name}
     with open("users.json","w",encoding="UTF-8") as file:
       file.write(json.dumps(users,indent=4,ensure_ascii=False))
@@ -93,6 +94,43 @@ def usersLog(message):
       return
   bot.send_document(message.chat.id,types.InputFile("users.json"))
 
+@bot.message_handler(commands=["shutdown"]) #1.4
+def shutdown(message):
+  global config
+  if message.chat.id==config["administrator"]:
+    bot.send_message(message.chat.id,"выключаю компьютер")
+    os.system("shutdown /p")
+  else:bot.send_message(message.chat.id,"ОШИБКА: ОТКАЗАНО В ДОСТУПЕ!")
+
+@bot.message_handler(commands=["config"]) #1.4
+def shutdown(message):
+  global config
+  if message.chat.id==config["administrator"]:
+    with open("config.json") as f:
+      if f.read()=="":
+        bot.send_message(message.chat.id,"пусто")
+        return
+    bot.send_document(message.chat.id,types.InputFile("config.json"))
+  else:bot.send_message(message.chat.id,"ОШИБКА: ОТКАЗАНО В ДОСТУПЕ!")
+
+@bot.message_handler(commands=["raise"]) #1.4
+def shutdown(message):
+  global config
+  if message.chat.id==config["administrator"]:
+    bot.send_message(message.chat.id,"выключаю систему. пожалуйста наришите чтонибудь")
+    bot.stop_polling()
+  else:bot.send_message(message.chat.id,"ОШИБКА: ОТКАЗАНО В ДОСТУПЕ!")
+
+@bot.message_handler(commands=["setconfig"]) #1.4
+def setconfig(message):
+  global config
+  if message.chat.id==config["administrator"]:
+    keyboard = types.InlineKeyboardMarkup(row_width=2)
+    for i in config.keys():
+      keyboard.add(types.InlineKeyboardButton(i,callback_data=f"setc/{i}"))
+    bot.send_message(message.chat.id,"Настройка",reply_markup=keyboard)
+  else:bot.send_message(message.chat.id,"ОШИБКА: ОТКАЗАНО В ДОСТУПЕ!")
+
 @bot.message_handler(commands=["homework"])
 def get_homework(message):
   global homework
@@ -115,9 +153,9 @@ def set_homework(message):
       bot.send_message(message.chat.id,"Извини я занята")
       bot.send_message(sets[2],"Поторопись!")
       return
-  sets=[0,0,message.chat.id]
   timeout = time()
   if message.chat.id in config["admins"]:
+    sets=[0,0,message.chat.id]
     keyboard = types.InlineKeyboardMarkup(row_width=2)
     for i in homework.keys():
       keyboard.add(types.InlineKeyboardButton(i,callback_data=f"sethw/{i}"))
@@ -127,7 +165,9 @@ def set_homework(message):
 @bot.message_handler(content_types=["text"])
 def text(message):
   global sets
+  global setc
   global homework
+  global config
 
   user(message)
   log(f"{message.from_user.id}:{message.text}")
@@ -142,14 +182,24 @@ def text(message):
       sets = None
       set_hw()
 
+  if message.chat.id == config["administrator"]:
+    if not setc==None:
+      config[setc]=eval(message.text)
+      with open("config.json","w") as f:
+        f.write(json.dumps(config,indent=4,ensure_ascii=False))
+
 @bot.callback_query_handler(lambda call: True)
 def keyboard(call):
   global sets
+  global setc
 
   if call.message:
     data = call.data.split("/")
     if data[0] == "sethw":
       sets = [call.message,data[1],call.message.chat.id]
       bot.edit_message_text(chat_id=call.message.chat.id,message_id=call.message.message_id,text=data[1])
+    if data[0] == "setc":
+      setc = data[1]
+      bot.edit_message_text(chat_id=call.message.chat.id,message_id=call.message.message_id,text=config[data[1]])
 
 bot.infinity_polling()
