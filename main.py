@@ -248,7 +248,6 @@ def text(message):
   global setc
   global homework
   global config
-  tick()
 
   user(message)
   log(f"{message.from_user.id}:{message.text}")
