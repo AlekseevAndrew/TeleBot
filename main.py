@@ -82,6 +82,27 @@ def start_message(message):
   bot.send_message(message.chat.id,f"Привет ✌️ {message.from_user.first_name}",reply_markup=key,parse_mode="markdown")
   print(f"{message.from_user.first_name}:{message.from_user.id}")
 
+@bot.message_handler(commands=["addLesson"])
+def addLesson(message):
+  if message.chat.id in config["moderators"]:
+    name = message.text.split()[1]
+    homework[name] = "-"
+    bot.delete_message(message.chat.id,message.message_id)
+    bot.send_message(message.chat.id,"👍",parse_mode="markdown")
+    bot.send_message(message.chat.id,"Добавлено!",parse_mode="markdown")
+    set_hw()
+  else:bot.send_message(message.chat.id,"ОШИБКА: ОТКАЗАНО В ДОСТУПЕ!",parse_mode="markdown")
+
+@bot.message_handler(commands=["deleteLesson"])
+def deleteLesson(message):
+  if message.chat.id in config["moderators"]:
+    keyboard = types.InlineKeyboardMarkup(row_width=2)
+    for i in homework.keys():
+      keyboard.add(types.InlineKeyboardButton(i,callback_data=f"delhwl/{i}"))
+
+    bot.send_message(message.chat.id,"По какому?",reply_markup=keyboard,parse_mode="markdown")
+  else:bot.send_message(message.chat.id,"ОШИБКА: ОТКАЗАНО В ДОСТУПЕ!",parse_mode="markdown")
+
 @bot.message_handler(commands=["sendText"]) #1.1
 def text(message):
   txt = message.text.split()
@@ -150,8 +171,8 @@ def shutdown(message):
 def shutdown(message):
   global config
   if message.chat.id==config["administrator"]:
-    bot.send_message(message.chat.id,"выключаю систему. пожалуйста наришите чтонибудь",parse_mode="markdown")
     bot.stop_polling()
+    exit()
   else:bot.send_message(message.chat.id,"ОШИБКА: ОТКАЗАНО В ДОСТУПЕ!",parse_mode="markdown")
 
 @bot.message_handler(commands=["setconfig"]) #1.4
@@ -180,6 +201,7 @@ def reload_sys(message):
     bot.send_message(message.chat.id,"Перезагрузка!")
     bot.stop_polling()
     os.system(config["startCommand"])
+    exit()
   else:bot.send_message(message.chat.id,"ОШИБКА: ОТКАЗАНО В ДОСТУПЕ!",parse_mode="markdown")
 
 @bot.message_handler(commands=["sendFile"]) #2.0
@@ -281,5 +303,10 @@ def keyboard(call):
     if data[0] == "setc":
       setc = data[1]
       bot.edit_message_text(chat_id=call.message.chat.id,message_id=call.message.message_id,text=config[data[1]])
+    if data[0] == "delhwl":
+      del homework[data[1]]
+      set_hw()
+      bot.edit_message_text(chat_id=call.message.chat.id,message_id=call.message.message_id,text="👍")
+      bot.send_message(call.message.chat.id,"Готово!",parse_mode="markdown")
 
 bot.infinity_polling()
