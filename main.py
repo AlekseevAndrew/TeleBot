@@ -74,27 +74,6 @@ def get_message_type(message):
   elif not message.location == None: return "location"
   elif not message.contact == None: return "contact"
 
-def anty_spam(message):
-  global users
-  global config
-  ID = message.from_user.id
-  if str(ID) in users.keys():
-    users[str(ID)]["time"] = time()
-
-  user_data = users[str(ID)]
-  if time() - user_data["time"] < config["spamLimit"]:
-    ban = config["spamTimes"][user_data["ban"]]
-    if ban == 0:
-      pass
-    else: 
-      bot.ban_chat_member(config["chat"],message.from_user.id)
-      users[str(ID)]["utime"] = time() + config["spamTimes"][ban] * 86400
-
-    users[str(ID)]["ban"]+=1
-  
-  with open("users.json","w",encoding="UTF-8") as file:
-      file.write(json.dumps(users,indent=4,ensure_ascii=False))
-
 
 @bot.message_handler(commands=['start'])
 def start_message(message):
@@ -230,10 +209,6 @@ def check_file(message):
     bot.send_message(message.chat.id,f"отправлено пользователю {ID}")
     sendf = None
     return
-  
-  if Type in ["sticker",'animation']:
-    anty_spam(message)
-
 
 @bot.message_handler(commands=["homework"])
 def get_homework(message):
@@ -307,20 +282,5 @@ def keyboard(call):
     if data[0] == "setc":
       setc = data[1]
       bot.edit_message_text(chat_id=call.message.chat.id,message_id=call.message.message_id,text=config[data[1]])
-
-def tick():
-  global config
-  global users
-  # unban users
-  for u in users.keys():
-    utime =users[u]["utime"]
-    if utime>0 and  utime <= time():
-      bot.unban_chat_member(int(config["chat"]),int(u))
-      us = users[u]
-      use = {"id":u,"username":us["username"],"first_name":us["first_name"],"last_name":us["last_name"]}
-      bot.send_message(config["administrator"],f"ОПОВЕЩЕНИЕ СИСТЕМЫ АНТИСПАМА: {use} необходимо вернуть в группу")
-      users[u]["utime"] = 0
-      with open("users.json","w",encoding="UTF-8") as file:
-        file.write(json.dumps(users,indent=4,ensure_ascii=False))
 
 bot.infinity_polling()
