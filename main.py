@@ -346,37 +346,36 @@ def text(message):
 
   if not setsh==None:
     if message.chat.id == setsh[2]:
-      match(setsh[3]):
-        case 0:
-          st = int(message.text)
-          setsh[5] = st
-          setsh[3]=2
-          bot.edit_message_text(message_id=setsh[1],text=f"Сколько уроков?",chat_id=setsh[2],parse_mode="markdown")
-          bot.delete_message(message.chat.id,message.message_id)
-        case 1:
-          cab = (message.text)
-          schedule.append({"name":setsh[0],"cab":cab})
-          keyboard = types.InlineKeyboardMarkup(row_width=2)
-          les = len(schedule)-1
-          for i in scheduleLessons:
-            keyboard.add(types.InlineKeyboardButton(i,callback_data=f"setshl/{i}/{les}"))
-          bot.edit_message_text(message_id=setsh[1],text=f"Какой {les+1} урок?",chat_id=setsh[2],reply_markup=keyboard,parse_mode="markdown")
-          bot.delete_message(message.chat.id,message.message_id)
-          if les == setsh[4]:
-            bot.edit_message_text(message_id=setsh[1],text=f"👍",chat_id=setsh[2],parse_mode="markdown")
-            bot.send_message(message.chat.id,"Изменено!",parse_mode="markdown")
-            setsh = None
-            set_sch()
-        case 2:
-          setsh[3]=1
-          less = int(message.text)
-          setsh[4] = less
-          keyboard = types.InlineKeyboardMarkup(row_width=2)
-          for i in scheduleLessons:
-            keyboard.add(types.InlineKeyboardButton(i,callback_data=f"setshl/{i}/0"))
-          bot.edit_message_text(message_id=setsh[1],text="Какой 1 урок?",chat_id=setsh[2],reply_markup=keyboard,parse_mode="markdown")
-          bot.delete_message(message.chat.id,message.message_id)
-          schedule = [setsh[5]]
+      if setsh[3] == 0:
+        st = int(message.text)
+        setsh[5] = st
+        setsh[3]=2
+        bot.edit_message_text(message_id=setsh[1],text=f"Сколько уроков?",chat_id=setsh[2],parse_mode="markdown")
+        bot.delete_message(message.chat.id,message.message_id)
+      if setsh[3] == 1:
+        cab = (message.text)
+        schedule.append({"name":setsh[0],"cab":cab})
+        keyboard = types.InlineKeyboardMarkup(row_width=2)
+        les = len(schedule)-1
+        for i in scheduleLessons:
+          keyboard.add(types.InlineKeyboardButton(i,callback_data=f"setshl/{i}/{les}"))
+        bot.edit_message_text(message_id=setsh[1],text=f"Какой {les+1} урок?",chat_id=setsh[2],reply_markup=keyboard,parse_mode="markdown")
+        bot.delete_message(message.chat.id,message.message_id)
+        if les == setsh[4]:
+          bot.edit_message_text(message_id=setsh[1],text=f"👍",chat_id=setsh[2],parse_mode="markdown")
+          bot.send_message(message.chat.id,"Изменено!",parse_mode="markdown")
+          setsh = None
+          set_sch()
+      if setsh[3] == 2:
+        setsh[3]=1
+        less = int(message.text)
+        setsh[4] = less
+        keyboard = types.InlineKeyboardMarkup(row_width=2)
+        for i in scheduleLessons:
+          keyboard.add(types.InlineKeyboardButton(i,callback_data=f"setshl/{i}/0"))
+        bot.edit_message_text(message_id=setsh[1],text="Какой 1 урок?",chat_id=setsh[2],reply_markup=keyboard,parse_mode="markdown")
+        bot.delete_message(message.chat.id,message.message_id)
+        schedule = [setsh[5]]
 
   if message.chat.id == config["administrator"]:
     if not setc==None:
