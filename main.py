@@ -352,7 +352,7 @@ def text(message):
         setsh[3]=2
         bot.edit_message_text(message_id=setsh[1],text=f"Сколько уроков?",chat_id=setsh[2],parse_mode="markdown")
         bot.delete_message(message.chat.id,message.message_id)
-      if setsh[3] == 1:
+      elif setsh[3] == 1:
         cab = (message.text)
         schedule.append({"name":setsh[0],"cab":cab})
         keyboard = types.InlineKeyboardMarkup(row_width=2)
@@ -366,7 +366,7 @@ def text(message):
           bot.send_message(message.chat.id,"Изменено!",parse_mode="markdown")
           setsh = None
           set_sch()
-      if setsh[3] == 2:
+      elif setsh[3] == 2:
         setsh[3]=1
         less = int(message.text)
         setsh[4] = less
