@@ -2,6 +2,7 @@ import os
 import telebot
 from telebot import types
 import json
+import shutil
 from time import time
 
 setc = None
@@ -14,13 +15,14 @@ users = {}
 homework = {}
 schedule = []
 scheduleLessons = []
+photos = []
 
 if not "users.json" in os.listdir():
   with open("users.json","w",encoding="UTF-8") as file:
     file.write("{}")
 
 def init():
-  global users, helpText, config, homework, schedule, scheduleLessons
+  global users, helpText, config, homework, schedule, scheduleLessons, photos
 
   with open("users.json",encoding="UTF-8") as file:
     users = json.loads(file.read())
@@ -98,12 +100,14 @@ def get_message_type(message):
   elif not message.sticker == None: return "sticker"
   elif not message.location == None: return "location"
   elif not message.contact == None: return "contact"
+  else: return "text"
 
 @bot.message_handler(commands=['start'])
 def start_message(message):
   key = types.ReplyKeyboardMarkup(True)
   key.add(types.KeyboardButton("Что задали?"))
   key.add(types.KeyboardButton("Какое расписание?"))
+  key.add(types.KeyboardButton("Есть фото?"))
   bot.send_message(message.chat.id,f"Привет ✌️ {message.from_user.first_name}",reply_markup=key,parse_mode="markdown")
   print(f"{message.from_user.first_name}:{message.from_user.id}")
 
@@ -257,28 +261,6 @@ def sendFile(message):
   sendf = [message.chat.id,convertId(message.text.split()[1])]
   bot.send_message(message.chat.id,f"что отправить пользователю {message.text.split()[1]}?")
 
-@bot.message_handler(content_types=['animation', 'audio', 'photo', 'voice', 'video', 'video_note', 'document', 'sticker', 'location', 'contact'])
-def check_file(message):
-  user(message)
-  Type = get_message_type(message)  
-
-  global sendf
-  if (not sendf == None) and sendf[0] == message.chat.id:
-    ID = sendf[1]
-    if Type == "animation": bot.send_animation(ID, message.animation.file_id)
-    elif Type == "audio": bot.send_audio(ID, message.audio.file_id)
-    elif Type == "photo": bot.send_photo(ID, message.photo.file_id, caption=message.caption)
-    elif Type == "voice": bot.send_voice(ID, message.voice.file_id)
-    elif Type == "video": bot.send_video(ID, message.video.file_id, caption=message.caption)
-    elif Type == "video_note": bot.send_video_note(ID, message.video_note.file_id)
-    elif Type == "document": bot.send_document(ID, message.document.file_id, caption=message.caption)
-    elif Type == "sticker": bot.send_sticker(ID, message.sticker.file_id)
-    elif Type == "location": bot.send_location(ID, message.location.latitude, message.location.longitude)
-    elif Type == "contact": bot.send_contact(ID, message.contact.phone_number, message.contact.first_name)
-    bot.send_message(message.chat.id,f"отправлено пользователю {ID}")
-    sendf = None
-    return
-
 @bot.message_handler(commands=["homework"])
 def get_homework(message):
   global homework
@@ -288,6 +270,20 @@ def get_homework(message):
   for lesson in homework.items():
     hw += f"{lesson[0]} : {lesson[1]}\n"
   bot.send_message(message.chat.id,hw[:len(hw)-1],parse_mode="markdown")
+
+@bot.message_handler(commands=["photo"])
+def get_photo(message):
+  bot.delete_message(message.chat.id,message.message_id)
+
+  if os.listdir("photos") == []:
+    bot.send_message(message.chat.id,"Нету(",parse_mode="markdown")
+    return
+
+  keyboard = types.InlineKeyboardMarkup(row_width=2)
+  for i in os.listdir("photos"):
+    keyboard.add(types.InlineKeyboardButton(i[:len(i)-3],callback_data=f"getPh/{i}"))
+
+  bot.send_message(message.chat.id,"По какому?",reply_markup=keyboard,parse_mode="markdown")
 
 @bot.message_handler(commands=["set"])
 def set_homework(message):
@@ -326,18 +322,50 @@ def getSchedule(message):
     res += f"_{i+c}_: *{name}*: {cab}\n"
   bot.send_message(message.chat.id,res[:len(res)-1],parse_mode="markdown")
 
-@bot.message_handler(content_types=["text"])
-def text(message):
-  global sets, homework, setc, config, setsh, schedule
-
+@bot.message_handler(content_types=["text",'animation', 'audio', 'photo', 'voice', 'video', 'video_note', 'document', 'sticker', 'location', 'contact'])
+def data(message):
+  global sets, homework, setc, config, setsh, schedule, sendf
   user(message)
+  Type = get_message_type(message)  
+  if (not sendf == None) and sendf[0] == message.chat.id:
+    ID = sendf[1]
+    if Type == "animation": bot.send_animation(ID, message.animation.file_id)
+    elif Type == "audio": bot.send_audio(ID, message.audio.file_id)
+    elif Type == "photo":
+      photos = message.photo
+      photos.reverse()
+      bot.send_photo(ID, photos[0].file_id, caption=message.caption)
+    elif Type == "voice": bot.send_voice(ID, message.voice.file_id)
+    elif Type == "video": bot.send_video(ID, message.video.file_id, caption=message.caption)
+    elif Type == "video_note": bot.send_video_note(ID, message.video_note.file_id)
+    elif Type == "document": bot.send_document(ID, message.document.file_id, caption=message.caption)
+    elif Type == "sticker": bot.send_sticker(ID, message.sticker.file_id)
+    elif Type == "location": bot.send_location(ID, message.location.latitude, message.location.longitude)
+    elif Type == "contact": bot.send_contact(ID, message.contact.phone_number, message.contact.first_name)
+    bot.send_message(message.chat.id,f"отправлено пользователю {ID}")
+    sendf = None
+
+  if message.text == None and message.caption == None: return
   log(f"{message.chat.id}/{message.from_user.id}:{message.text}")
   if message.text in config["getHomeworkCommands"]: get_homework(message=message)
   if message.text in config["getScheduleCommands"]: getSchedule(message=message)
+  if message.text in config["getPhotosCommands"]: get_photo(message=message)
 
   if not sets==None:
     if message.chat.id == sets[2] and (not sets[0] == None):
-      homework[sets[1]]=message.text
+      Lesson = sets[1]
+      if Type=="photo" and message.caption == "+":
+        if not f"{Lesson}dir" in os.listdir("photos"): os.mkdir(f"photos/{Lesson}dir")
+        p = len(os.listdir(f"photos/{Lesson}dir"))
+        photo = message.photo[len(message.photo)-1]
+        file_path = bot.get_file(photo.file_id).file_path
+        file = bot.download_file(file_path)
+        with open(f"photos/{Lesson}dir/photo{p}.png", "wb") as code:
+          code.write(file)
+        bot.send_message(message.chat.id,"Добавила!",parse_mode="markdown")
+        return
+      else:
+        homework[sets[1]]=message.text + (" /photo" if f"{Lesson}dir" in os.listdir("photos") else "")
       bot.delete_message(message.chat.id,message.message_id)
       bot.edit_message_text(chat_id=message.chat.id,message_id=sets[0].message_id,text="👍")
       bot.send_message(message.chat.id,"Изменено!",parse_mode="markdown")
@@ -391,6 +419,8 @@ def keyboard(call):
     data = call.data.split("/")
     if data[0] == "sethw":
       sets = [call.message,data[1],call.message.chat.id]
+      if data[1]+"dir" in os.listdir("photos"):
+        shutil.rmtree(f"photos/{data[1]}dir")
       bot.edit_message_text(chat_id=call.message.chat.id,message_id=call.message.message_id,text=data[1])
     if data[0] == "setc":
       setc = data[1]
@@ -408,5 +438,12 @@ def keyboard(call):
       set_schl()
       bot.edit_message_text(chat_id=call.message.chat.id,message_id=call.message.message_id,text="👍")
       bot.send_message(call.message.chat.id,"Готово!",parse_mode="markdown")
+    if data[0] == "getPh":
+      l = data[1]
+      bot.delete_message(call.message.chat.id,call.message.message_id)
+      phsfs =[]
+      for i in os.listdir(f"photos/{l}"):
+        phsfs.append(types.InputMediaPhoto(media=open(f"photos/{l}/{i}","rb"),caption=(l[:len(l)-3] if i == "photo0.png" else None)))
+      bot.send_media_group(call.message.chat.id,phsfs)
 
 bot.infinity_polling()
