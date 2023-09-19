@@ -266,10 +266,10 @@ def get_homework(message):
   global homework
 
   get_hw()
-  hw = ""
+  hw = "Дз:\n"
   for lesson in homework.items():
-    hw += f"{lesson[0]} : {lesson[1]}\n"
-  bot.send_message(message.chat.id,hw[:len(hw)-1],parse_mode="markdown")
+    hw += f"{lesson[0]} : {lesson[1]}\n" if lesson[1] != "-"  else ""
+  bot.send_message(message.chat.id,hw.strip(),parse_mode="markdown")
 
 @bot.message_handler(commands=["photo"])
 def get_photo(message):
