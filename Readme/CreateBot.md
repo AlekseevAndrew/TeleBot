@@ -6,4 +6,4 @@
  * Напишите имя своего бота
  * Введите username бота с окончанием `bot` Пример - `MyFirst_tg_bot`
  * Бот выдаст вам токен бота
- * Вставте токен в [`config.json`](Readme/config.json)
+ * Вставте токен в [`config.json`](config.json)
