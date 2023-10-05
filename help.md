@@ -28,3 +28,6 @@
 *Отправка*
 /sendText id text - Отправляет id text
 /sendFile id - отправляет файл id
+
+*NetSchool*
+/netSchool - Выводит дз из нетскула

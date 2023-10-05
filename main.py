@@ -4,6 +4,7 @@ import json
 import shutil
 import datetime
 import asyncio
+from netschoolapi import NetSchoolAPI
 from time import time
 from telebot import async_telebot
 
@@ -107,9 +108,8 @@ def get_message_type(message):
 @bot.message_handler(commands=['start'])
 async def start_message(message):
   key = telebot.types.ReplyKeyboardMarkup(True)
-  key.add(telebot.types.KeyboardButton("Что задали?"))
-  key.add(telebot.types.KeyboardButton("Какое расписание?"))
-  key.add(telebot.types.KeyboardButton("Есть фото?"))
+  key.add(telebot.types.KeyboardButton(config["getHomeworkCommands"][0]),telebot.types.KeyboardButton(config["getScheduleCommands"][0]),telebot.types.KeyboardButton(config["getPhotosCommands"][0]))
+  if config["netSchool"]["enable"]:key.add(telebot.types.KeyboardButton(config["netSchool"]['getNetSchoolHomeworkCommands'][0]))
   await bot.send_message(message.chat.id,f"Привет ✌️ {message.from_user.first_name}",reply_markup=key)
 
 @bot.message_handler(commands=["addLesson"])
@@ -322,6 +322,53 @@ async def getSchedule(message):
     res += f"_{i+c}_: *{name}*: {cab}\n"
   await bot.send_message(message.chat.id,res[:len(res)-1])
 
+async def parseNetSchool(week=0):
+    homeworks = {}
+    ns = NetSchoolAPI(config["netSchool"]["link"])
+    await ns.login(
+        config["netSchool"]["login"],
+        config["netSchool"]["password"],
+        config["netSchool"]["school"]
+    )
+    st = datetime.date.today() - datetime.timedelta(datetime.date.today().weekday())
+    start = st - datetime.timedelta(weeks=abs(week)) if week<0 else st + datetime.timedelta(weeks=week)
+    end = start+ datetime.timedelta(days=5)
+
+    diary = await ns.diary(start,end)
+    schedule = diary.schedule
+    for day in schedule:
+        lessons = day.lessons
+        for lesson in lessons:
+            assignments=lesson.assignments
+            for assignment in assignments:
+                if assignment.type == "Домашнее задание":
+                    homework = assignment.content
+                    homeworks[lesson.subject] = homework
+
+    diary = await ns.diary(start=start+ datetime.timedelta(weeks=1),end=end+ datetime.timedelta(weeks=1))
+    schedule = diary.schedule
+    for day in schedule:
+        lessons = day.lessons
+        for lesson in lessons:
+            assignments=lesson.assignments
+            for assignment in assignments:
+                if assignment.type == "Домашнее задание":
+                    homeworks[lesson.subject] = assignment.content
+
+    await ns.logout()
+    return homeworks
+
+@bot.message_handler(commands=["netSchool"])
+async def getNetschool(message):
+  if not config["netSchool"]["enable"]:
+    await bot.send_message(message.chat.id,"ОШИБКА: Данная функция отключена администраторм")
+    return
+  homeworks = await parseNetSchool()
+  hw = "Дз:\n"
+  for lesson in homeworks.items():
+    hw += f"{lesson[0]} : {lesson[1]}\n" if lesson[1] != "-"  else ""
+  await bot.send_message(message.chat.id,hw.strip())
+
 @bot.message_handler(content_types=["text",'animation', 'audio', 'photo', 'voice', 'video', 'video_note', 'document', 'sticker', 'location', 'contact'])
 async def data(message):
   global sets, homework, setc, config, setsh, schedule, sendf
@@ -350,6 +397,7 @@ async def data(message):
   if message.text in config["getHomeworkCommands"]:await get_homework(message=message)
   if message.text in config["getScheduleCommands"]:await getSchedule(message=message)
   if message.text in config["getPhotosCommands"]:await get_photo(message=message)
+  if config["netSchool"]["enable"] and message.text in config["netSchool"]["getNetSchoolHomeworkCommands"]: await getNetschool(message=message)
 
   if not sets==None:
     if message.chat.id == sets[2] and (not sets[0] == None):

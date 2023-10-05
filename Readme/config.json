@@ -3,7 +3,7 @@
     "moderators": [ID тех тко отвечает за дз и расписание(123)],
     "administrator": ID аднминистратора бота (123),
     "timeout": Тайм-аут в сеундах на вставку задания,
-    "version": "*3.0*",
+    "version": "*3.1*",
     "help": "help.md",
     "getHomeworkCommands": ["Команды", "для", "запроса", "дз"],
     "getScheduleCommands": ["Команды", "для", "запроса", "расписания"],
@@ -11,5 +11,13 @@
     "startCommand": "python main.py",
     "chat": ID группы,
     "birthdayAdministrator":ID человек ответственного за дни рождения,
-    "birthdayHour":Час в который придёт уведомление о дне рождения
+    "birthdayHour":Час в который придёт уведомление о дне рождения,
+    "netSchool":{
+        "enable":true,
+        "login":"Логин",
+        "password":"Пароль",
+        "school":"Школа",
+        "link":"http://Ссылка/на/сайт",
+        "getNetSchoolHomeworkCommands":["Команды", "для", "запроса", "дз"]
+    }
 }

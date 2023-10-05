@@ -48,6 +48,9 @@
 
 `/sendFile` [id](#ключевые-слова) - отправляет файл [id](#ключевые-слова)
 
+## Netschool
+`/netSchool` - Отправляет дз из NetSchool Если он включен в [`config.json`](config.json)
+
 # Ключевые Слова
 
 `lesson` - название урока
