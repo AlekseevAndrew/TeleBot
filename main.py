@@ -110,6 +110,8 @@ async def start_message(message):
   key = telebot.types.ReplyKeyboardMarkup(True)
   key.add(telebot.types.KeyboardButton(config["getHomeworkCommands"][0]),telebot.types.KeyboardButton(config["getScheduleCommands"][0]),telebot.types.KeyboardButton(config["getPhotosCommands"][0]))
   if config["netSchool"]["enable"]:key.add(telebot.types.KeyboardButton(config["netSchool"]['getNetSchoolHomeworkCommands'][0]))
+  if message.chat.id in config["moderators"]:key.add(config["moderatorCommands"]["SetScheduleCommands"][0],config["moderatorCommands"]["SetHomeworkCommands"][0])
+  if message.chat.id == config["administrator"]:key.add(config["administratorCommands"]["getLogCommands"][0],config["administratorCommands"]["getUsersCommands"][0])
   await bot.send_message(message.chat.id,f"Привет ✌️ {message.from_user.first_name}",reply_markup=key)
 
 @bot.message_handler(commands=["addLesson"])
@@ -398,6 +400,14 @@ async def data(message):
   if message.text in config["getScheduleCommands"]:await getSchedule(message=message)
   if message.text in config["getPhotosCommands"]:await get_photo(message=message)
   if config["netSchool"]["enable"] and message.text in config["netSchool"]["getNetSchoolHomeworkCommands"]: await getNetschool(message=message)
+  if message.chat.id in config["moderators"]:
+    if message.text in config["moderatorCommands"]["SetScheduleCommands"]:
+      await setSchedule(message=message)
+      return
+    if message.text in config["moderatorCommands"]["SetHomeworkCommands"]:await set_homework(message=message)
+  if message.chat.id == config["administrator"]:
+    if message.text in config["administratorCommands"]["getUsersCommands"]:await usersLog(message=message)
+    if message.text in config["administratorCommands"]["getLogCommands"]:await printLog(message=message)
 
   if not sets==None:
     if message.chat.id == sets[2] and (not sets[0] == None):
