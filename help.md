@@ -29,5 +29,10 @@
 /sendText id text - Отправляет id text
 /sendFile id - отправляет файл id
 
+*Баны*
+/ban id hours prichina - банит id на hours часов по причине prichina
+/unban id - разбанивает id
+/blacklist - черный список
+
 *NetSchool*
 /netSchool - Выводит дз из нетскула

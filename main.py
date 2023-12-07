@@ -19,41 +19,15 @@ homework = {}
 schedule = []
 scheduleLessons = []
 photos = []
+blacklist = []
 
 if not "users.json" in os.listdir():
   with open("users.json","w",encoding="UTF-8") as file:
     file.write("{}")
 
-def init():
-  global users, helpText, config, homework, schedule, scheduleLessons, photos
-
-  with open("users.json",encoding="UTF-8") as file:
-    users = json.loads(file.read())
-
-  with open("config.json",encoding="UTF-8") as file:
-    config = json.loads(file.read())
-
-  with open("homework.json",encoding="UTF-8") as f:
-    homework = json.loads(f.read())
-
-  with open(config["help"],encoding="UTF-8") as f:
-    helpText = f.read()
-
-  with open("schedule.json",encoding="UTF-8") as f:
-    schedule = json.loads(f.read())
-  
-  with open("scheduleLessons.json",encoding="UTF-8") as f:
-    scheduleLessons = json.loads(f.read())
-
-init()
-
-bot=async_telebot.AsyncTeleBot(config["token"],parse_mode="markdown")
-
-convertId = lambda id: int(id) if id.isdigit() else str(id)
-
-def log(Log):
-  with open("messages.log","a",encoding="UTF-8") as f:
-    f.write(Log+"\n")
+if not "blacklist.json" in os.listdir():
+  with open("blacklist.json","w",encoding="UTF-8") as file:
+    file.write("[]")
 
 def get_schl():
   global scheduleLessons
@@ -85,12 +59,54 @@ def set_hw():
   with open("homework.json","w",encoding="UTF-8") as f:
     f.write(json.dumps(homework,indent=4,ensure_ascii=False))
 
+def get_blacklist():
+  global blacklist
+  with open("blacklist.json",encoding="UTF-8") as f:
+    blacklist = json.loads(f.read())
+
+def set_blacklist():
+  global blacklist
+  with open("blacklist.json","w",encoding="UTF-8") as f:
+    f.write(json.dumps(blacklist,indent=4,ensure_ascii=False))
+
+def init():
+  global users, helpText, config
+
+
+  with open("users.json",encoding="UTF-8") as file:
+    users = json.loads(file.read())
+
+  with open("config.json",encoding="UTF-8") as file:
+    config = json.loads(file.read())
+
+  with open(config["help"],encoding="UTF-8") as f:
+    helpText = f.read()
+
+  get_hw()
+  get_sch()
+  get_schl()
+  get_blacklist()
+
+init()
+
+bot=async_telebot.AsyncTeleBot(config["token"],parse_mode="markdown")
+
+convertId = lambda id: int(id) if id.isdigit() else str(id)
+
+def log(Log):
+  with open("messages.log","a",encoding="UTF-8") as f:
+    f.write(Log+"\n")
+
 def user(message):
   global users
+  get_blacklist()
   if not str(message.from_user.id) in list(users.keys()):
     users[str(message.from_user.id)]={"username":message.from_user.username,"first_name":message.from_user.first_name,"last_name":message.from_user.last_name}
     with open("users.json","w",encoding="UTF-8") as file:
       file.write(json.dumps(users,indent=4,ensure_ascii=False))
+  if message.text!=None:
+    log(f"{message.chat.id}/{message.from_user.id}:{message.text}")
+  return message.from_user.id in blacklist
 
 def get_message_type(message):
   if not message.animation == None: return "animation"
@@ -107,15 +123,18 @@ def get_message_type(message):
 
 @bot.message_handler(commands=['start'])
 async def start_message(message):
+  if user(message):return
   key = telebot.types.ReplyKeyboardMarkup(True)
   key.add(telebot.types.KeyboardButton(config["getHomeworkCommands"][0]),telebot.types.KeyboardButton(config["getScheduleCommands"][0]),telebot.types.KeyboardButton(config["getPhotosCommands"][0]))
   if config["netSchool"]["enable"]:key.add(telebot.types.KeyboardButton(config["netSchool"]['getNetSchoolHomeworkCommands'][0]))
   if message.chat.id in config["moderators"]:key.add(config["moderatorCommands"]["SetScheduleCommands"][0],config["moderatorCommands"]["SetHomeworkCommands"][0])
-  if message.chat.id == config["administrator"]:key.add(config["administratorCommands"]["getLogCommands"][0],config["administratorCommands"]["getUsersCommands"][0])
+  if message.chat.id == config["administrator"]:key.add(config["administratorCommands"]["getLogCommands"][0],config["administratorCommands"]["getUsersCommands"][0],
+                                                        config["administratorCommands"]["getConfigCommands"][0],config["administratorCommands"]["getBlackListCommands"][0])
   await bot.send_message(message.chat.id,f"Привет ✌️ {message.from_user.first_name}",reply_markup=key)
 
 @bot.message_handler(commands=["addLesson"])
 async def addLesson(message):
+  if user(message):return
   if message.chat.id in config["moderators"]:
     name = " ".join(message.text.split()[1:])
     homework[name] = "-"
@@ -127,6 +146,7 @@ async def addLesson(message):
 
 @bot.message_handler(commands=["deleteLesson"])
 async def deleteLesson(message):
+  if user(message):return
   if message.chat.id in config["moderators"]:
     get_hw()
     keyboard = telebot.types.InlineKeyboardMarkup(row_width=2)
@@ -138,6 +158,7 @@ async def deleteLesson(message):
 
 @bot.message_handler(commands=["addSLesson"])
 async def addLesson(message):
+  if user(message):return
   if message.chat.id in config["moderators"]:
     name = " ".join(message.text.split()[1:])
     scheduleLessons.append(name)
@@ -149,6 +170,7 @@ async def addLesson(message):
 
 @bot.message_handler(commands=["deleteSLesson"])
 async def deleteLesson(message):
+  if user(message):return
   if message.chat.id in config["moderators"]:
     get_schl()
     keyboard = telebot.types.InlineKeyboardMarkup(row_width=2)
@@ -160,6 +182,7 @@ async def deleteLesson(message):
 
 @bot.message_handler(commands=["setSchedule"])
 async def setSchedule(message):
+  if user(message):return
   global setsh
   if message.chat.id in config["moderators"]:
     m = await bot.send_message(message.chat.id,"С какого урока?")
@@ -168,11 +191,13 @@ async def setSchedule(message):
 
 @bot.message_handler(commands=["sendText"])
 async def text(message):
+  if user(message):return
   txt = message.text.split()
   await bot.send_message(convertId(txt[1])," ".join(txt[2:len(txt)]))
 
 @bot.message_handler(commands=["log"])
 async def printLog(message):
+  if user(message):return
   if message.chat.id in config["moderators"]:
     with open("messages.log") as f:
       if f.read()=="":
@@ -183,6 +208,7 @@ async def printLog(message):
 
 @bot.message_handler(commands=["clearLog"])
 async def clearLog(message):
+  if user(message):return
   if message.chat.id==config["administrator"]:
     with open("messages.log","w") as file:file.write("")
     await bot.send_message(message.chat.id,"Отчистила логи.")
@@ -190,10 +216,12 @@ async def clearLog(message):
 
 @bot.message_handler(commands=["version"])
 async def version(message):
+  if user(message):return
   await bot.send_message(message.chat.id,str(config["version"]))
 
 @bot.message_handler(commands=["users"])
 async def usersLog(message):
+  if user(message):return
   if message.chat.id==config["administrator"]:
     with open("users.json") as f:
       if f.read()=="":
@@ -203,18 +231,16 @@ async def usersLog(message):
   else:await bot.send_message(message.chat.id,"ОШИБКА: ОТКАЗАНО В ДОСТУПЕ!")
 
 @bot.message_handler(commands=["config"])
-async def shutdown(message):
+async def get_config(message):
+  if user(message):return
   global config
   if message.chat.id==config["administrator"]:
-    with open("config.json") as f:
-      if f.read()=="":
-        await bot.send_message(message.chat.id,"пусто")
-        return
     await bot.send_document(message.chat.id,telebot.types.InputFile("config.json"))
   else:await bot.send_message(message.chat.id,"ОШИБКА: ОТКАЗАНО В ДОСТУПЕ!")
 
 @bot.message_handler(commands=["raise"])
 async def shutdown(message):
+  if user(message):return
   global config
   if message.chat.id==config["administrator"]:
     exit()
@@ -222,6 +248,7 @@ async def shutdown(message):
 
 @bot.message_handler(commands=["setconfig"])
 async def setconfig(message):
+  if user(message):return
   global config
   if message.chat.id==config["administrator"]:
     keyboard = telebot.types.InlineKeyboardMarkup(row_width=2)
@@ -232,15 +259,18 @@ async def setconfig(message):
 
 @bot.message_handler(commands=["help"])
 async def help(message):
+  if user(message):return
   global helpText
   await bot.send_message(message.chat.id,helpText)
 
 @bot.message_handler(commands=["id"])
 async def get_my_id(message):
+  if user(message):return
   await bot.send_message(message.chat.id,message.chat.id)
 
 @bot.message_handler(commands=["reload"])
 async def reload_sys(message):
+  if user(message):return
   global config
   if message.chat.id==config["administrator"]:
     await bot.send_message(message.chat.id,"Перезагрузка!")
@@ -251,6 +281,7 @@ async def reload_sys(message):
 
 @bot.message_handler(commands=["reinit"])
 async def reload_sys(message):
+  if user(message):return
   global config
   if message.chat.id==config["administrator"]:
     await bot.send_message(message.chat.id,"Инициализация!")
@@ -259,12 +290,14 @@ async def reload_sys(message):
 
 @bot.message_handler(commands=["sendFile"])
 async def sendFile(message):
+  if user(message):return
   global sendf
   sendf = [message.chat.id,convertId(message.text.split()[1])]
   await bot.send_message(message.chat.id,f"что отправить пользователю {message.text.split()[1]}?")
 
 @bot.message_handler(commands=["homework"])
 async def get_homework(message):
+  if user(message):return
   global homework
 
   get_hw()
@@ -275,6 +308,7 @@ async def get_homework(message):
 
 @bot.message_handler(commands=["photo"])
 async def get_photo(message):
+  if user(message):return
   await bot.delete_message(message.chat.id,message.message_id)
 
   if os.listdir("photos") == []:
@@ -284,11 +318,13 @@ async def get_photo(message):
   keyboard = telebot.types.InlineKeyboardMarkup(row_width=2)
   for i in os.listdir("photos"):
     keyboard.add(telebot.types.InlineKeyboardButton(i[:len(i)-3],callback_data=f"getPh/{i}"))
+  keyboard.add(telebot.types.InlineKeyboardButton("-Отмена-",callback_data=f"getPh/exit"))
 
   await bot.send_message(message.chat.id,"По какому?",reply_markup=keyboard)
 
 @bot.message_handler(commands=["set"])
 async def set_homework(message):
+  if user(message):return
   global homework
   global config
   global sets
@@ -311,6 +347,7 @@ async def set_homework(message):
 
 @bot.message_handler(commands=["schedule"])
 async def getSchedule(message):
+  if user(message):return
   get_sch()
   c = schedule[0]
   less = schedule[1:]
@@ -362,6 +399,7 @@ async def parseNetSchool(week=0):
 
 @bot.message_handler(commands=["netSchool"])
 async def getNetschool(message):
+  if user(message):return
   if not config["netSchool"]["enable"]:
     await bot.send_message(message.chat.id,"ОШИБКА: Данная функция отключена администраторм")
     return
@@ -371,10 +409,56 @@ async def getNetschool(message):
     hw += f"{lesson[0]} : {lesson[1]}\n" if lesson[1] != "-"  else ""
   await bot.send_message(message.chat.id,hw.strip())
 
+@bot.message_handler(commands=["ban"])
+async def add_to_black_list(message):
+  if user(message):return
+  if message.from_user.id in config["moderators"]:
+    user_id = int(message.text.split()[1])
+    hours = int(message.text.split()[2])*3600+time()
+    prichina = " ".join(message.text.split()[3:])
+    if user_id in users.keys():user_name = users[user_id]["username"]
+    else: user_name = user_id
+    text = f'''
+Пользователь {user_name} добавлен в чёрный список по причине:
+
+"_{prichina}_"
+
+Пользователь получит возможность вернуться в группу через {int(message.text.split()[2])} часов
+По дополнительным вопросам обращатся к модераторам или администратору бота
+'''
+    
+    if not user_id in blacklist:
+      blacklist.append(user_id)
+      set_blacklist()
+    await bot.delete_message(message.chat.id,message.id)
+    await bot.send_message(message.chat.id,text)
+    await bot.ban_chat_member(config["chat"],user_id,hours)
+  else:await bot.send_message(message.chat.id,"ОШИБКА: ОТКАЗАНО В ДОСТУПЕ!")
+
+@bot.message_handler(commands=["unban"])
+async def remove_user_from_black_list(message):
+  if user(message):return
+  if message.from_user.id in config["moderators"]:
+    get_blacklist()
+    user_id = int(message.text.split()[1])
+    if user_id in blacklist:
+      blacklist.remove(user_id)
+    set_blacklist()
+    await bot.send_message(message.chat.id,"👍")
+    await bot.send_message(message.chat.id,"Готово!")
+  else:await bot.send_message(message.chat.id,"ОШИБКА: ОТКАЗАНО В ДОСТУПЕ!")
+
+@bot.message_handler(commands=["blacklist"])
+async def send_blacklist(message):
+  if user(message):return
+  if message.chat.id in config["moderators"]:
+    await bot.send_document(message.chat.id,telebot.types.InputFile("blacklist.json"))
+  else:await bot.send_message(message.chat.id,"ОШИБКА: ОТКАЗАНО В ДОСТУПЕ!")
+
 @bot.message_handler(content_types=["text",'animation', 'audio', 'photo', 'voice', 'video', 'video_note', 'document', 'sticker', 'location', 'contact'])
 async def data(message):
   global sets, homework, setc, config, setsh, schedule, sendf
-  user(message)
+  if user(message):return
   Type = get_message_type(message)  
   if (not sendf == None) and sendf[0] == message.chat.id:
     ID = sendf[1]
@@ -395,7 +479,6 @@ async def data(message):
     sendf = None
 
   if message.text == None and message.caption == None: return
-  log(f"{message.chat.id}/{message.from_user.id}:{message.text}")
   if message.text in config["getHomeworkCommands"]:await get_homework(message=message)
   if message.text in config["getScheduleCommands"]:await getSchedule(message=message)
   if message.text in config["getPhotosCommands"]:await get_photo(message=message)
@@ -408,6 +491,8 @@ async def data(message):
   if message.chat.id == config["administrator"]:
     if message.text in config["administratorCommands"]["getUsersCommands"]:await usersLog(message=message)
     if message.text in config["administratorCommands"]["getLogCommands"]:await printLog(message=message)
+    if message.text in config["administratorCommands"]["getConfigCommands"]:await get_config(message=message)
+    if message.text in config["administratorCommands"]["getBlackListCommands"]:await send_blacklist(message=message)
 
   if not sets==None:
     if message.chat.id == sets[2] and (not sets[0] == None):
@@ -503,6 +588,7 @@ async def keyboard(call):
       l = data[1]
       await bot.delete_message(call.message.chat.id,call.message.message_id)
       phsfs =[]
+      if l == "exit":return
       for i in os.listdir(f"photos/{l}"):
         phsfs.append(telebot.types.InputMediaPhoto(media=open(f"photos/{l}/{i}","rb"),caption=(l[:len(l)-3] if i == "photo0.png" else None)))
       await bot.send_media_group(call.message.chat.id,phsfs)

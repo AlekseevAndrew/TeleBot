@@ -8,7 +8,9 @@
     "administrator": ID аднминистратора бота (123),
     "administratorCommands":{
         "getLogCommands":["Команды","для","получения","messages.log"],
-        "getUsersCommands":["Команды","для","получения","users.json"]
+        "getUsersCommands":["Команды","для","получения","users.json"],
+        "getBlackListCommands": ["Команды","для","получения","blacklist.json"],
+        "getConfigCommands": ["Команды","для","получения","config.json"]
     },
     "timeout": Тайм-аут в сеундах на вставку задания,
     "version": "*3.1*",
