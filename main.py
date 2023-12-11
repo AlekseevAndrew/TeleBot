@@ -414,6 +414,9 @@ async def add_to_black_list(message):
   if user(message):return
   if message.from_user.id in config["moderators"]:
     user_id = int(message.text.split()[1])
+    if user_id == config["administrator"]:
+      await bot.send_message(message.chat.id,"Нет, не быду я его банить!")
+      return
     hours = int(message.text.split()[2])*3600+time()
     prichina = " ".join(message.text.split()[3:])
     if user_id in users.keys():user_name = users[user_id]["username"]
