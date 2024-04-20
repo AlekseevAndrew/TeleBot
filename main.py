@@ -275,7 +275,7 @@ async def clearLog(message):
 @bot.message_handler(commands=["version"])
 async def version(message):
   if user(message):return
-  await bot.send_message(message.chat.id,"4.0.1")
+  await bot.send_message(message.chat.id,"4.0.2")
 
 @bot.message_handler(commands=["users"])
 async def usersLog(message):
@@ -373,7 +373,7 @@ async def create_remind(message):
   if message.chat.id == config["chat"]:return
 
   reminders[str(message.chat.id)] = [message.chat.id]
-  await bot.send_message(message.chat.id,"Напишите на какой день поставить напоминание в формате dd.mm (например 01.12), а затем чрез пробел за сколько дней надо напомнить об этом (не обязательно). Нпример если вы напишите `01.12 1 3 5` то я напомню вам первого декабря и за 1, 3, 5 дней")
+  await bot.send_message(message.chat.id,"Напишите на какой день поставить напоминание в формате dd.mm (например 01.12), а затем через пробел за сколько дней надо напомнить об этом (не обязательно). Например если вы напишите `01.12 1 3 5` то я напомню вам первого декабря и за 1, 3, 5 дней")
 
 @bot.message_handler(commands=["list_reminds"])
 async def list_reminds(message):
