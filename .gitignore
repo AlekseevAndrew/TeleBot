@@ -136,3 +136,7 @@ dmypy.json
 /yandex-skill
 /blacklist.json
 /users.json
+/photos/*
+/reminds.json
+/events/*
+/documents/*

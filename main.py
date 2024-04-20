@@ -1,14 +1,17 @@
 import os
-import telebot as telebot
+import telebot
 import json
 import shutil
 import datetime
 import asyncio
-from netschoolapi import NetSchoolAPI
+import uuid
+import random
+import aiofiles
+import aiohttp
 from time import time
 from telebot import async_telebot
+from io import BytesIO
 
-setc = None
 sets = None
 setsh = None
 sendf = None
@@ -20,6 +23,14 @@ schedule = []
 scheduleLessons = []
 photos = []
 blacklist = []
+lastMessages = {}
+chat_messages_before_homework_get = 10000
+is_homework_updated = True
+chat_messages_before_schedule_get = 10000
+is_schedule_updated = True
+reminds = []
+reminders = {}
+event_creators = {}
 
 if not "users.json" in os.listdir():
   with open("users.json","w",encoding="UTF-8") as file:
@@ -27,6 +38,10 @@ if not "users.json" in os.listdir():
 
 if not "blacklist.json" in os.listdir():
   with open("blacklist.json","w",encoding="UTF-8") as file:
+    file.write("[]")
+
+if not "reminds.json" in os.listdir():
+  with open("reminds.json","w",encoding="UTF-8") as file:
     file.write("[]")
 
 def get_schl():
@@ -69,9 +84,18 @@ def set_blacklist():
   with open("blacklist.json","w",encoding="UTF-8") as f:
     f.write(json.dumps(blacklist,indent=4,ensure_ascii=False))
 
+def get_reminds():
+  global reminds
+  with open("reminds.json",encoding="UTF-8") as f:
+    reminds = json.loads(f.read())
+
+def set_reminds():
+  global reminds
+  with open("reminds.json","w",encoding="UTF-8") as f:
+    f.write(json.dumps(reminds,indent=4,ensure_ascii=False))
+
 def init():
   global users, helpText, config
-
 
   with open("users.json",encoding="UTF-8") as file:
     users = json.loads(file.read())
@@ -86,8 +110,14 @@ def init():
   get_sch()
   get_schl()
   get_blacklist()
+  get_reminds()
 
 init()
+
+if config["netSchool"]["enable"]:from netschoolapi import NetSchoolAPI
+if config["dnevnik_egov66"]["enable"]:
+  import dnevnikEgov66Api
+  dnevnikEgov66 = dnevnikEgov66Api.diary(config["dnevnik_egov66"]["login"],config["dnevnik_egov66"]["password"])
 
 bot=async_telebot.AsyncTeleBot(config["token"],parse_mode="markdown")
 
@@ -101,7 +131,7 @@ def user(message):
   global users
   get_blacklist()
   if not str(message.from_user.id) in list(users.keys()):
-    users[str(message.from_user.id)]={"username":message.from_user.username,"first_name":message.from_user.first_name,"last_name":message.from_user.last_name}
+    users[str(message.from_user.id)]={"username":message.from_user.username,"first_name":message.from_user.first_name,"last_name":message.from_user.last_name,"warnings":0,"rang": 0,"score": 0,"secrets":[False,False]}
     with open("users.json","w",encoding="UTF-8") as file:
       file.write(json.dumps(users,indent=4,ensure_ascii=False))
   if message.text!=None:
@@ -124,12 +154,40 @@ def get_message_type(message):
 @bot.message_handler(commands=['start'])
 async def start_message(message):
   if user(message):return
-  key = telebot.types.ReplyKeyboardMarkup(True)
-  key.add(telebot.types.KeyboardButton(config["getHomeworkCommands"][0]),telebot.types.KeyboardButton(config["getScheduleCommands"][0]),telebot.types.KeyboardButton(config["getPhotosCommands"][0]))
+  key = telebot.types.ReplyKeyboardMarkup(True,row_width=4)
+  key.add(telebot.types.KeyboardButton(config["user_commands"]["getHomeworkCommands"][0]),
+          telebot.types.KeyboardButton(config["user_commands"]["getScheduleCommands"][0]),
+          telebot.types.KeyboardButton(config["user_commands"]["getPhotosCommands"][0]),
+          telebot.types.KeyboardButton(config["user_commands"]["getFilesCommands"][0]),
+          telebot.types.KeyboardButton(config["user_commands"]["GetEventsCommands"][0]))
+
   if config["netSchool"]["enable"]:key.add(telebot.types.KeyboardButton(config["netSchool"]['getNetSchoolHomeworkCommands'][0]))
-  if message.chat.id in config["moderators"]:key.add(config["moderatorCommands"]["SetScheduleCommands"][0],config["moderatorCommands"]["SetHomeworkCommands"][0])
-  if message.chat.id == config["administrator"]:key.add(config["administratorCommands"]["getLogCommands"][0],config["administratorCommands"]["getUsersCommands"][0],
-                                                        config["administratorCommands"]["getConfigCommands"][0],config["administratorCommands"]["getBlackListCommands"][0])
+  if config["dnevnik_egov66"]["enable"]:key.add(telebot.types.KeyboardButton(config["dnevnik_egov66"]['getHomeworkCommands'][0]))
+
+  if message.chat.id in config["moderators"]:key.add(config["moderatorCommands"]["SetScheduleCommands"][0],
+                                                     config["moderatorCommands"]["SetHomeworkCommands"][0],
+                                                     telebot.types.KeyboardButton(config["moderatorCommands"]["CreateEventCommands"][0]),
+                                                     telebot.types.KeyboardButton(config["moderatorCommands"]["DeleteEventCommands"][0]))
+
+  if message.chat.id == config["administrator"]:key.add(config["administratorCommands"]["getLogCommands"][0],
+                                                        config["administratorCommands"]["getUsersCommands"][0],
+                                                        config["administratorCommands"]["getConfigCommands"][0],
+                                                        config["administratorCommands"]["getBlackListCommands"][0])
+    
+  if message.chat.id == config["chat"] and message.from_user.id in config["moderators"]:key.add(config["moderatorCommands"]["PinMessageCommands"][0],
+                                                                                                config["moderatorCommands"]["UnpinMessageCommands"][0],
+                                                                                                config["moderatorCommands"]["UnpinMessagesCommands"][0])
+    
+  if message.chat.id != config["chat"]:
+    key.add(telebot.types.KeyboardButton(config["user_commands"]["CreateRemindCommands"][0]),
+            telebot.types.KeyboardButton(config["user_commands"]["ListRemindsCommands"][0]),
+            telebot.types.KeyboardButton(config["user_commands"]["DeleteRemindCommands"][0]))
+    
+    if message.chat.id in config["moderators"]:
+      key.add(telebot.types.KeyboardButton(config["moderatorCommands"]["CreateClassRemindCommands"][0]),
+              telebot.types.KeyboardButton(config["moderatorCommands"]["ListClassRemindsCommands"][0]),
+              telebot.types.KeyboardButton(config["moderatorCommands"]["DeleteClassRemindCommands"][0]))
+    
   await bot.send_message(message.chat.id,f"Привет ✌️ {message.from_user.first_name}",reply_markup=key)
 
 @bot.message_handler(commands=["addLesson"])
@@ -217,7 +275,7 @@ async def clearLog(message):
 @bot.message_handler(commands=["version"])
 async def version(message):
   if user(message):return
-  await bot.send_message(message.chat.id,str(config["version"]))
+  await bot.send_message(message.chat.id,"4.0")
 
 @bot.message_handler(commands=["users"])
 async def usersLog(message):
@@ -246,17 +304,6 @@ async def shutdown(message):
     exit()
   else:await bot.send_message(message.chat.id,"ОШИБКА: ОТКАЗАНО В ДОСТУПЕ!")
 
-@bot.message_handler(commands=["setconfig"])
-async def setconfig(message):
-  if user(message):return
-  global config
-  if message.chat.id==config["administrator"]:
-    keyboard = telebot.types.InlineKeyboardMarkup(row_width=2)
-    for i in config.keys():
-      keyboard.add(telebot.types.InlineKeyboardButton(i,callback_data=f"setc/{i}"))
-    await bot.send_message(message.chat.id,"Настройка",reply_markup=keyboard)
-  else:await bot.send_message(message.chat.id,"ОШИБКА: ОТКАЗАНО В ДОСТУПЕ!")
-
 @bot.message_handler(commands=["help"])
 async def help(message):
   if user(message):return
@@ -266,7 +313,8 @@ async def help(message):
 @bot.message_handler(commands=["id"])
 async def get_my_id(message):
   if user(message):return
-  await bot.send_message(message.chat.id,message.chat.id)
+  if message.reply_to_message == None: await bot.send_message(message.chat.id,message.chat.id)
+  else: await bot.send_message(message.from_user.id,message.reply_to_message.from_user.id)
 
 @bot.message_handler(commands=["reload"])
 async def reload_sys(message):
@@ -295,15 +343,395 @@ async def sendFile(message):
   sendf = [message.chat.id,convertId(message.text.split()[1])]
   await bot.send_message(message.chat.id,f"что отправить пользователю {message.text.split()[1]}?")
 
+@bot.message_handler(commands=["pin"])
+async def pin_message(message):
+  if user(message):return
+  if message.chat.id == config["chat"] and message.from_user.id in config["moderators"]:
+    if message.reply_to_message==None:
+      await bot.pin_chat_message(message.chat.id,lastMessages[message.from_user.id])
+    else:
+      await bot.pin_chat_message(message.chat.id,message.reply_to_message.id)
+  else:await bot.send_message(message.chat.id,"ОШИБКА: ОТКАЗАНО В ДОСТУПЕ!")
+
+@bot.message_handler(commands=["unpin"])
+async def unpin_message(message):
+  if user(message):return
+  if message.chat.id == config["chat"] and message.from_user.id in config["moderators"] and message.reply_to_message != None:
+    await bot.unpin_chat_message(message.chat.id,message.reply_to_message.id)
+  else:await bot.send_message(message.chat.id,"ОШИБКА: ОТКАЗАНО В ДОСТУПЕ!")
+
+@bot.message_handler(commands=["unpinall"])
+async def unpin_all_messages(message):
+  if user(message):return
+  if message.chat.id == config["chat"] and message.from_user.id in config["moderators"]:
+    await bot.unpin_all_chat_messages(message.chat.id)
+  else:await bot.send_message(message.chat.id,"ОШИБКА: ОТКАЗАНО В ДОСТУПЕ!")
+
+@bot.message_handler(commands=["create_remind"])
+async def create_remind(message):
+  if user(message):return
+  if message.chat.id == config["chat"]:return
+
+  reminders[str(message.chat.id)] = [message.chat.id]
+  await bot.send_message(message.chat.id,"Напишите на какой день поставить напоминание в формате dd.mm (например 01.12), а затем чрез пробел за сколько дней надо напомнить об этом (не обязательно). Нпример если вы напишите `01.12 1 3 5` то я напомню вам первого декабря и за 1, 3, 5 дней")
+
+@bot.message_handler(commands=["list_reminds"])
+async def list_reminds(message):
+  if user(message):return
+  get_reminds()
+  result = "Ваши напоминания:\n"
+  for remind in reminds:
+    if remind["user"] == message.chat.id:
+      result+="*"+remind["date"]+"* " + remind["text"] + "\n"
+  await bot.send_message(message.chat.id,result)
+
+@bot.message_handler(commands=["delete_remind"])
+async def delete_remind(message):
+  if user(message):return
+  key = telebot.types.InlineKeyboardMarkup()
+  key.add(telebot.types.InlineKeyboardButton("Все",callback_data="delete_remind/all"))
+  get_reminds()
+  for i,remind in enumerate(reminds):
+    if remind["user"] == message.chat.id:
+      key.add(telebot.types.InlineKeyboardButton("*"+remind["date"]+"* " + remind["text"] + "\n",callback_data=f"delete_remind/{i}"))
+  key.add(telebot.types.InlineKeyboardButton("-Отмена-",callback_data="delete_remind/cancel"))
+  await bot.send_message(message.chat.id,"Что удалить?",reply_markup=key)
+
+@bot.message_handler(commands=["create_remind_for_all"])
+async def create_remind_for_all(message):
+  if user(message):return
+  if message.chat.id == config["chat"]:return
+
+  reminders[str(message.chat.id)] = [config["chat"]]
+  await bot.send_message(message.chat.id,"В какой день напомнить?")
+
+@bot.message_handler(commands=["list_reminds_for_all"])
+async def list_reminds_for_all(message):
+  if user(message):return
+  get_reminds()
+  result = " Напоминания класса:\n"
+  for remind in reminds:
+    if remind["user"] == config["chat"]:
+      result+="*"+remind["date"]+"* " + remind["text"] + "\n"
+  await bot.send_message(message.chat.id,result)
+
+@bot.message_handler(commands=["delete_remind_for_all"])
+async def delete_remind_for_all(message):
+  if user(message):return
+  key = telebot.types.InlineKeyboardMarkup()
+  key.add(telebot.types.InlineKeyboardButton("Все",callback_data="delete_remind_for_all/all"))
+  get_reminds()
+  for i,remind in enumerate(reminds):
+    if remind["user"] == config["chat"]:
+      key.add(telebot.types.InlineKeyboardButton("*"+remind["date"]+"* " + remind["text"] + "\n",callback_data=f"delete_remind_for_all/{i}"))
+  key.add(telebot.types.InlineKeyboardButton("-Отмена-",callback_data="delete_remind_for_all/cancel"))
+  await bot.send_message(message.chat.id,"Что удалить?",reply_markup=key)
+
+@bot.message_handler(commands=["get_events"])
+async def get_events(message):
+  if user(message):return
+  key = telebot.types.InlineKeyboardMarkup()
+  for dir in os.listdir("events/"):
+    with open(f"events/{dir}/event_data.json",encoding="UTF_8") as f:
+      event_data = json.loads(f.read())
+    key.add(telebot.types.InlineKeyboardButton(event_data["name"],callback_data=f"get_event/{dir}"))
+  key.add(telebot.types.InlineKeyboardButton("- Закрыть -",callback_data=f"get_event/close"))
+  await bot.delete_message(message.chat.id,message.id)
+  await bot.send_message(message.chat.id,"Доска объявлений:",reply_markup=key)
+
+@bot.message_handler(["create_event"])
+async def create_event(message):
+  global event_creators
+  if not message.chat.id in config["moderators"]:
+    await bot.send_message(message.chat.id,"ОШИБКА: ОТКАЗАНО В ДОСТУПЕ!")
+    return
+  dir = str(uuid.uuid4().hex)
+  os.mkdir(f"events/{dir}")
+  event_creators[str(message.chat.id)] = [dir]
+  await bot.send_message(message.chat.id,"Напишите название события")
+
+@bot.message_handler(commands=["delete_event"])
+async def delete_event(message):
+  if user(message):return
+  if not message.chat.id in config["moderators"]:
+    await bot.send_message(message.chat.id,"ОШИБКА: ОТКАЗАНО В ДОСТУПЕ!")
+    return
+  key = telebot.types.InlineKeyboardMarkup()
+  key.add(telebot.types.InlineKeyboardButton("- Все -",callback_data=f"delete_event/all"))
+  for dir in os.listdir("events/"):
+    with open(f"events/{dir}/event_data.json",encoding="UTF_8") as f:
+      event_data = json.loads(f.read())
+    key.add(telebot.types.InlineKeyboardButton(event_data["name"],callback_data=f"delete_event/{dir}"))
+  key.add(telebot.types.InlineKeyboardButton("- Закрыть -",callback_data=f"delete_event/close"))
+  await bot.send_message(message.chat.id,"Что удалить?",reply_markup=key)
+
+@bot.message_handler(commands=["dnevnikEgov66"])
+async def getDnevnikEgov66(message):
+  if user(message):return
+  if not config["dnevnik_egov66"]["enable"]:
+    await bot.send_message(message.chat.id,"ОШИБКА: Данная функция отключена администраторм")
+    return
+  await bot.delete_message(message.chat.id,message.message_id)
+  key = telebot.types.InlineKeyboardMarkup(row_width=4)
+  key.add(telebot.types.InlineKeyboardButton("<3",callback_data="dnevnikEgov66/-1"),
+          telebot.types.InlineKeyboardButton("<",callback_data="dnevnikEgov66/0"),
+          telebot.types.InlineKeyboardButton(">",callback_data="dnevnikEgov66/2"),
+          telebot.types.InlineKeyboardButton("3>",callback_data="dnevnikEgov66/4"),
+          telebot.types.InlineKeyboardButton("<7",callback_data="dnevnikEgov66/-5"),
+          telebot.types.InlineKeyboardButton("<5",callback_data="dnevnikEgov66/-3"),
+          telebot.types.InlineKeyboardButton("5>",callback_data="dnevnikEgov66/6"),
+          telebot.types.InlineKeyboardButton("7>",callback_data="dnevnikEgov66/8"))
+  hw_raw = await dnevnikEgov66.getDayHomework(1)
+  date = hw_raw["date"]
+  hw = f"*{date}*\n\n"
+  for i,lesson in enumerate(hw_raw["homework"]):
+    name = lesson["name"]
+    text = lesson["text"]
+    hw += f"*{name}*\n`{text}`\n\n"
+    if lesson["files"] != []:key.add(telebot.types.InlineKeyboardButton(f"*[{i}] {name}*",callback_data=f"dnevnikEgov66download/{date}/{i}"))
+  if message.chat.id in config["moderators"]:key.add(telebot.types.InlineKeyboardButton("- Записать -",callback_data=f"dnevnikEgov66toBase/0/{date}"))
+  key.add(telebot.types.InlineKeyboardButton("- Закрыть -",callback_data="dnevnikEgov66/close"))
+
+  await bot.send_message(message.chat.id,hw,reply_markup=key)
+
+@bot.message_handler(commands=["classinfo"])
+async def getClassInfo(message):
+  if user(message):return
+  with open("classinfo.txt",encoding="UTF-8") as f:
+    await bot.send_message(message.chat.id,f.read())
+
+@bot.message_handler(commands=["birthdays"])
+async def getBirthdays(message):
+  if user(message):return
+  with open("birthdays.json",encoding="UTF-8") as f:
+    birthdays = json.loads(f.read())
+  res = "Список дней рождения:\n"
+  for birthday in birthdays:
+    name = birthday["name"]
+    date = birthday["date"]
+    res += f"У *{name}* `{date}`\n"
+  await bot.send_message(message.chat.id,res)
+
+@bot.message_handler(commands=["rab"])
+async def ball(message):
+  if user(message):return
+  if len(message.text)<7:
+    await bot.reply_to(message,"Пожалуйста напишите что спросить у шара")
+    return
+  answer = random.choice(["Несомненно","Вероятно","Однозначно да","Нет","Да","Врядли","Точно нет","Очень может быть","Думаю да","Думаю что нет","Не могу сказать"])
+  await bot.reply_to(message,answer)
+
+@bot.message_handler(commands=["warn"])
+async def sendWarning(message):
+  if user(message):return
+  if not message.from_user.id in config["moderators"]:
+    await bot.send_message(message.chat.id,"ОШИБКА: ОТКАЗАНО В ДОСТУПЕ!")
+    return
+  if len(message.text)<7:
+    await bot.reply_to(message,"Пожалуйста напишите о чем предупредить")
+    return
+  if message.reply_to_message == None:
+    await bot.reply_to(message,"Пожалуйста напишите кого предупредить")
+    return
+  users[str(message.reply_to_message.from_user.id)]["warnings"]+=1
+  with open("users.json","w",encoding="UTF-8") as file:
+    file.write(json.dumps(users,indent=4,ensure_ascii=False))
+  text = message.text[6:]
+  number = users[str(message.reply_to_message.from_user.id)]["warnings"]
+  await bot.send_message(message.reply_to_message.from_user.id,f"Вам выдано предупреждение {text}! (Случай #{number})")
+  await bot.reply_to(message.reply_to_message,f"Выдано предупреждение {text}! (Случай #{number})")
+
+@bot.message_handler(commands=["delwarn"])
+async def clearWarnings(message):
+  if user(message):return
+  if not message.from_user.id in config["moderators"]:
+    await bot.send_message(message.chat.id,"ОШИБКА: ОТКАЗАНО В ДОСТУПЕ!")
+    return
+  await bot.delete_message(message.chat.id,message.message_id)
+  if message.reply_to_message == None:
+    await bot.reply_to(message,"Пожалуйста напишите у кого убрать предупреждения")
+    return
+  users[str(message.reply_to_message.from_user.id)]["warnings"] = 0
+  with open("users.json","w",encoding="UTF-8") as file:
+    file.write(json.dumps(users,indent=4,ensure_ascii=False))
+  await bot.send_message(message.from_user.id,f"Убраны все предупреждения")
+
+@bot.message_handler(commands=["rang"])
+async def userRang(message):
+  if user(message):return
+  await bot.delete_message(message.chat.id,message.message_id)
+  if(message.reply_to_message == None):
+    rang = users[str(message.from_user.id)]["rang"]
+    score = users[str(message.from_user.id)]["score"]
+    await bot.send_message(message.chat.id, f"*{message.from_user.username}*\n\nУровень: {rang} ({score}/25)")
+  else:
+    rang = users[str(message.reply_to_message.from_user.id)]["rang"]
+    score = users[str(message.reply_to_message.from_user.id)]["score"]
+    await bot.send_message(message.chat.id, f"*{message.reply_to_message.from_user.username}*\n\nУровень: {rang} ({score}/100)")
+
+async def secret1(message):
+  global users
+  if user(message):return
+  await bot.delete_message(message.chat.id,message.message_id)
+  if message.chat.id == config["chat"] or users[str(message.from_user.id)]["secrets"][0]:return
+  messages = []
+  text = '''```cpp
+#include <iostream>
+using namespace std;
+
+int main() 
+{
+    cout << "Я снова кричу тебе на всех языках";
+    return 0;
+}
+  ```'''
+  messages.append(await bot.send_message(message.chat.id,text))
+  await asyncio.sleep(2)
+  text = '''```c
+#include <stdio.h>
+ 
+int main()
+{
+  printf("Seni seviyorum\\n");
+  return 0;
+}
+  ```'''
+  messages.append(await bot.send_message(message.chat.id,text))
+  await asyncio.sleep(2.5)
+  text = '''```java
+class HelloWorld {
+    public static void main(String[] args) {
+        System.out.println("Я тебе кохаю");
+    }
+}
+  ```'''
+  messages.append(await bot.send_message(message.chat.id,text))
+  await asyncio.sleep(2)
+  text = '''```Pascal
+program Hello;
+begin
+  writeln ('Te quiero')
+end.
+  ```'''
+  messages.append(await bot.send_message(message.chat.id,text))
+  await asyncio.sleep(2.5)
+  text = '''```php
+<?php
+  echo "I love you";
+?>
+  ```'''
+  messages.append(await bot.send_message(message.chat.id,text))
+  await asyncio.sleep(1)
+  text = '''```Assembler
+.MODEL SMALL
+.STACK 100h
+.DATA
+    HelloMessage DB 'I love you',13,10,'$'
+.CODE
+START:
+    mov ax,@data
+    mov ds,ax
+    mov ah,9
+    mov dx,OFFSET HelloMessage
+    int 21h
+    mov ah,4ch
+    int 21h
+END START
+  ```'''
+  messages.append(await bot.send_message(message.chat.id,text))
+  await asyncio.sleep(1)
+  text = '''```Scala
+object HelloWorld {
+  def main(args: Array[String]): Unit = {
+    println("Мен сені сүйемін")
+  }
+}
+  ```'''
+  messages.append(await bot.send_message(message.chat.id,text))
+  await asyncio.sleep(2.5)
+  text = '''```javascript
+alert("Я цябе кахаю");
+  ```'''
+  messages.append(await bot.send_message(message.chat.id,text))
+  await asyncio.sleep(2)
+  text = '''```csharp
+using System;
+
+namespace HelloWorld
+{
+    class Hello 
+    {
+        static void Main() 
+        {
+            Console.WriteLine("사랑해요");
+        }
+    }
+}
+  ```'''
+  messages.append(await bot.send_message(message.chat.id,text))
+  await asyncio.sleep(2.5)
+  text = '''```python
+print("Я тебя люблю!")
+  ```'''
+  messages.append(await bot.send_message(message.chat.id,text))
+  await asyncio.sleep(1)
+  messages.append(await bot.send_message(message.chat.id,"❤️"))
+  await asyncio.sleep(3)
+  for m in messages:
+    await bot.delete_message(message.chat.id,m.message_id)
+    await asyncio.sleep(0.1)
+  await bot.send_message(message.chat.id,"Поздравляю! Вы нашли посхалку!")
+  users[str(message.from_user.id)]["rang"]+=1
+  users[str(message.from_user.id)]["secrets"][0] = True
+  with open("users.json","w",encoding="UTF-8") as file:
+    file.write(json.dumps(users,indent=4,ensure_ascii=False))
+  
+async def secret2(message):
+  global users
+  if user(message):return
+  if message.chat.id == config["chat"] or users[str(message.from_user.id)]["secrets"][1]:
+    await bot.delete_message(message.chat.id,message.message_id)
+    return
+  await asyncio.sleep(1.5)
+  async with aiohttp.ClientSession() as session:
+    tkn = config["token"]
+    response = await session.get(f"https://api.telegram.org/bot{tkn}/sendPhoto?chat_id={message.chat.id}&photo=https://www.pluggedin.ru/images/1-bigTopImage_2023_10_17_12_29_52.jpg&caption=А я,")
+    response_json = await response.json()
+  message_id = response_json["result"]["message_id"]
+  await asyncio.sleep(1.5)
+  await bot.edit_message_caption("А я, так просто,",message.chat.id,message_id)
+  await asyncio.sleep(1.5)
+  await bot.edit_message_caption("А я, так просто, Железный человек!",message.chat.id,message_id)
+  await asyncio.sleep(3)
+  await bot.delete_message(message.chat.id,message_id)
+  await bot.delete_message(message.chat.id,message.message_id)
+  await asyncio.sleep(3)
+  await bot.send_message(message.chat.id,"Поздравляю! Вы нашли посхалку!")
+  users[str(message.from_user.id)]["rang"]+=1
+  users[str(message.from_user.id)]["secrets"][1] = True
+  with open("users.json","w",encoding="UTF-8") as file:
+    file.write(json.dumps(users,indent=4,ensure_ascii=False))
+
+@bot.message_handler(commands=["git"])
+async def sendGit(message):
+  await bot.send_message(message.chat.id,"https://github.com/AlekseevAndrew/TeleBot")
+
 @bot.message_handler(commands=["homework"])
 async def get_homework(message):
   if user(message):return
-  global homework
+  global is_homework_updated, chat_messages_before_homework_get
+
+  chat_messages_before_homework_get-=1
+  if message.chat.id == config["chat"] and ((not is_homework_updated) and chat_messages_before_homework_get<=config["messages_before_get_homework"]):
+    await bot.delete_message(message.chat.id,message.id)
+    return
 
   get_hw()
   hw = "Дз:\n"
   for lesson in homework.items():
-    hw += f"{lesson[0]} : {lesson[1]}\n" if lesson[1] != "-"  else ""
+    hw += f"*{lesson[0]}* : {lesson[1]}\n" if lesson[1] != "`-`"  else ""
+  is_homework_updated = False
+  if message.chat.id == config["chat"]: chat_messages_before_homework_get = 0
   await bot.send_message(message.chat.id,hw.strip())
 
 @bot.message_handler(commands=["photo"])
@@ -312,13 +740,29 @@ async def get_photo(message):
   await bot.delete_message(message.chat.id,message.message_id)
 
   if os.listdir("photos") == []:
-    await bot.send_message(message.chat.id,"Нету(")
+    await bot.send_message(message.chat.id,"Нет(")
     return
 
   keyboard = telebot.types.InlineKeyboardMarkup(row_width=2)
   for i in os.listdir("photos"):
     keyboard.add(telebot.types.InlineKeyboardButton(i[:len(i)-3],callback_data=f"getPh/{i}"))
   keyboard.add(telebot.types.InlineKeyboardButton("-Отмена-",callback_data=f"getPh/exit"))
+
+  await bot.send_message(message.chat.id,"По какому?",reply_markup=keyboard)
+
+@bot.message_handler(commands=["files"])
+async def get_file(message):
+  if user(message):return
+  await bot.delete_message(message.chat.id,message.message_id)
+
+  if os.listdir("documents") == []:
+    await bot.send_message(message.chat.id,"Нет(")
+    return
+
+  keyboard = telebot.types.InlineKeyboardMarkup(row_width=2)
+  for i in os.listdir("documents"):
+    keyboard.add(telebot.types.InlineKeyboardButton(i[:len(i)-3],callback_data=f"getFile/{i}"))
+  keyboard.add(telebot.types.InlineKeyboardButton("-Отмена-",callback_data=f"getFile/exit"))
 
   await bot.send_message(message.chat.id,"По какому?",reply_markup=keyboard)
 
@@ -341,13 +785,20 @@ async def set_homework(message):
     keyboard = telebot.types.InlineKeyboardMarkup(row_width=2)
     for i in homework.keys():
       keyboard.add(telebot.types.InlineKeyboardButton(i,callback_data=f"sethw/{i}"))
-
+    keyboard.add(telebot.types.InlineKeyboardButton("- Отмена -",callback_data=f"sethw/cancel"))
     await bot.send_message(message.chat.id,"По какому?",reply_markup=keyboard)
   else:await bot.send_message(message.chat.id,"ОШИБКА: ОТКАЗАНО В ДОСТУПЕ!")
 
 @bot.message_handler(commands=["schedule"])
 async def getSchedule(message):
   if user(message):return
+  global is_schedule_updated, chat_messages_before_schedule_get
+
+  chat_messages_before_schedule_get-=1
+  if message.chat.id == config["chat"] and ((not is_schedule_updated) and chat_messages_before_schedule_get<=config["messages_before_get_schedule"]):
+    await bot.delete_message(message.chat.id,message.id)
+    return
+  
   get_sch()
   c = schedule[0]
   less = schedule[1:]
@@ -359,6 +810,7 @@ async def getSchedule(message):
     cab = lesson["cab"]
     lname = ((maxl-len(name))*"--")
     res += f"_{i+c}_: *{name}*: {cab}\n"
+  if message.chat.id == config["chat"]: chat_messages_before_schedule_get = 0
   await bot.send_message(message.chat.id,res[:len(res)-1])
 
 async def parseNetSchool(week=0):
@@ -413,14 +865,15 @@ async def getNetschool(message):
 async def add_to_black_list(message):
   if user(message):return
   if message.from_user.id in config["moderators"]:
-    user_id = int(message.text.split()[1])
+    if message.reply_to_message == None: user_id = int(message.text.split()[1])
+    else: user_id = message.reply_to_message.from_user.id
     if user_id == config["administrator"]:
-      await bot.send_message(message.chat.id,"Нет, не быду я его банить!")
+      await bot.send_message(message.chat.id,"Нет, не буду я его банить!")
       return
     hours = int(message.text.split()[2])*3600+time()
     prichina = " ".join(message.text.split()[3:])
-    if user_id in users.keys():user_name = users[user_id]["username"]
-    else: user_name = user_id
+    if str(user_id) in users.keys():user_name = users[user_id]["username"]
+    else: user_name = ""
     text = f'''
 Пользователь {user_name} добавлен в чёрный список по причине:
 
@@ -459,10 +912,27 @@ async def send_blacklist(message):
   else:await bot.send_message(message.chat.id,"ОШИБКА: ОТКАЗАНО В ДОСТУПЕ!")
 
 @bot.message_handler(content_types=["text",'animation', 'audio', 'photo', 'voice', 'video', 'video_note', 'document', 'sticker', 'location', 'contact'])
-async def data(message):
-  global sets, homework, setc, config, setsh, schedule, sendf
+async def data_handler(message):
+
+  global sets, homework, setc, config, setsh, schedule, sendf, lastMessages, is_homework_updated, event_creators
+  global chat_messages_before_homework_get, is_schedule_updated, chat_messages_before_schedule_get, reminds
   if user(message):return
   Type = get_message_type(message)  
+
+  if message.chat.id == config["chat"]:
+    chat_messages_before_homework_get += 1
+    chat_messages_before_schedule_get += 1
+    users[str(message.from_user.id)]["score"]+=1
+    if(users[str(message.from_user.id)]["score"]==25):
+      users[str(message.from_user.id)]["score"]=0
+      users[str(message.from_user.id)]["rang"]+=1
+      rang = users[str(message.from_user.id)]["rang"]
+      result = f"Поздравляю ты достиг {rang} уровня!"
+      await bot.send_message(message.from_user.id,result)
+      await bot.reply_to(message,result)
+    with open("users.json","w",encoding="UTF-8") as file:
+      file.write(json.dumps(users,indent=4,ensure_ascii=False))
+
   if (not sendf == None) and sendf[0] == message.chat.id:
     ID = sendf[1]
     if Type == "animation": await bot.send_animation(ID, message.animation.file_id)
@@ -481,26 +951,14 @@ async def data(message):
     await bot.send_message(message.chat.id,f"отправлено пользователю {ID}")
     sendf = None
 
-  if message.text == None and message.caption == None: return
-  if message.text in config["getHomeworkCommands"]:await get_homework(message=message)
-  if message.text in config["getScheduleCommands"]:await getSchedule(message=message)
-  if message.text in config["getPhotosCommands"]:await get_photo(message=message)
-  if config["netSchool"]["enable"] and message.text in config["netSchool"]["getNetSchoolHomeworkCommands"]: await getNetschool(message=message)
-  if message.chat.id in config["moderators"]:
-    if message.text in config["moderatorCommands"]["SetScheduleCommands"]:
-      await setSchedule(message=message)
-      return
-    if message.text in config["moderatorCommands"]["SetHomeworkCommands"]:await set_homework(message=message)
-  if message.chat.id == config["administrator"]:
-    if message.text in config["administratorCommands"]["getUsersCommands"]:await usersLog(message=message)
-    if message.text in config["administratorCommands"]["getLogCommands"]:await printLog(message=message)
-    if message.text in config["administratorCommands"]["getConfigCommands"]:await get_config(message=message)
-    if message.text in config["administratorCommands"]["getBlackListCommands"]:await send_blacklist(message=message)
-
   if not sets==None:
     if message.chat.id == sets[2] and (not sets[0] == None):
+      if message.text == "Отмена":
+        await bot.delete_message(message.chat.id,message.message_id)
+        await bot.edit_message_text(chat_id=message.chat.id,message_id=sets[0].message_id,text="Отмена действия!")
+        sets = None
       Lesson = sets[1]
-      if Type=="photo" and message.caption == "+":
+      if Type=="photo":
         if not f"{Lesson}dir" in os.listdir("photos"): os.mkdir(f"photos/{Lesson}dir")
         p = len(os.listdir(f"photos/{Lesson}dir"))
         photo = message.photo[len(message.photo)-1]
@@ -509,15 +967,31 @@ async def data(message):
         with open(f"photos/{Lesson}dir/photo{p}.png", "wb") as code:
           code.write(file)
         await bot.send_message(message.chat.id,"Добавила!")
-        return
+        if message.caption == "+":
+          homework[sets[1]]="/photo"
+          await bot.delete_message(message.chat.id,message.message_id)
+          await bot.edit_message_text(chat_id=message.chat.id,message_id=sets[0].message_id,text="👍")
+          await bot.send_message(message.chat.id,"Изменено!")
+          is_homework_updated = True
+          sets = None
+          set_hw()
+      elif Type == "document":
+        if not f"{Lesson}dir" in os.listdir("documents"): os.mkdir(f"documents/{Lesson}dir")
+        file_path = await bot.get_file(message.document.file_id)
+        file = await bot.download_file(file_path.file_path)
+        with open(f"documents/{Lesson}dir/{message.document.file_name}", "wb") as code:
+          code.write(file)
+        await bot.send_message(message.chat.id,"Добавила!")
       else:
-        homework[sets[1]]=message.text + (" /photo" if f"{Lesson}dir" in os.listdir("photos") else "")
-      await bot.delete_message(message.chat.id,message.message_id)
-      await bot.edit_message_text(chat_id=message.chat.id,message_id=sets[0].message_id,text="👍")
-      await bot.send_message(message.chat.id,"Изменено!")
-      sets = None
-      set_hw()
-
+        homework[sets[1]]=f"`{message.text}`" + (" /photo" if f"{Lesson}dir" in os.listdir("photos") else "") + (" /files" if f"{Lesson}dir" in os.listdir("documents") else "")
+        await bot.delete_message(message.chat.id,message.message_id)
+        await bot.edit_message_text(chat_id=message.chat.id,message_id=sets[0].message_id,text="👍")
+        await bot.send_message(message.chat.id,"Изменено!")
+        is_homework_updated = True
+        sets = None
+        set_hw()
+      return
+      
   if not setsh==None:
     if message.chat.id == setsh[2]:
       if setsh[3] == 0:
@@ -538,6 +1012,7 @@ async def data(message):
         if les == setsh[4]:
           await bot.edit_message_text(message_id=setsh[1],text=f"👍",chat_id=setsh[2])
           await bot.send_message(message.chat.id,"Изменено!")
+          is_schedule_updated = True
           setsh = None
           set_sch()
       elif setsh[3] == 2:
@@ -550,43 +1025,156 @@ async def data(message):
         await bot.edit_message_text(message_id=setsh[1],text="Какой 1 урок?",chat_id=setsh[2],reply_markup=keyboard)
         await bot.delete_message(message.chat.id,message.message_id)
         schedule = [setsh[5]]
+      return
 
-  if message.chat.id == config["administrator"]:
-    if not setc==None:
-      config[setc]=eval(message.text)
-      with open("config.json","w",encoding="UTF-8") as f:
-        f.write(json.dumps(config,indent=4,ensure_ascii=False))
-      await bot.delete_message(message.chat.id,message.message_id)
-      await bot.send_message(message.chat.id,"👍")
-      await bot.send_message(message.chat.id,"Изменено!")
+  if str(message.chat.id) in reminders.keys():
+    if len(reminders[str(message.chat.id)]) == 1:
+      data = message.text.split()
+      if len(data[0]) != 5:
+        await bot.send_message(message.chat.id,"Пожалуйста используйте правильный формат!")
+        return
+      if len(data) != 1:
+        try:
+          days = list(map(int,data[1:]))
+        except:
+          await bot.send_message(message.chat.id,"Пожалуйста используйте правильный формат!")
+          return
+      else: days = []
+      reminders[str(message.chat.id)].append(data[0])
+      reminders[str(message.chat.id)].append(days)
+      await bot.send_message(message.chat.id,"Что напомнить?")
+      return
+    if len(reminders[str(message.chat.id)]) == 3:
+      get_reminds()
+      reminder = reminders[str(message.chat.id)]
+      remind = {
+        "user":reminder[0],
+        "text":message.text,
+        "date":reminder[1],
+        "days":reminder[2]
+      }
+      reminds.append(remind)
+      set_reminds()
+      del reminders[str(message.chat.id)]
+      days_str = ", ".join(list(map(str,remind["days"])))
+      date = remind["date"]
+      await bot.send_message(message.chat.id,f"Хорошо! Напомню '{message.text}' В дату {date}"+(f" и за {days_str} дней." if days_str!="" else ""))
+      return
+  
+  if str(message.chat.id) in event_creators.keys():
+    event_creator = event_creators[str(message.chat.id)]
+    if len(event_creator) == 1:
+      event_creators[str(message.chat.id)].append(message.text)
+      await bot.send_message(message.chat.id,"Теперь если нужно отправте изображения, а затем текст обьявления")
+    elif len(event_creator) == 2:
+      dir = "events/"+event_creator[0]
+      if Type=="photo":
+        p = len(os.listdir(dir))
+        photo = message.photo[len(message.photo)-1]
+        file_path = await bot.get_file(photo.file_id)
+        file = await bot.download_file(file_path.file_path)
+        with open(f"{dir}/photo{p}.png", "wb") as code:
+          code.write(file)
+        await bot.send_message(message.chat.id,"Добавила!")
+        if message.caption == "+":
+          event_data = {
+            "name": event_creator[1],
+            "text": ""
+          }
+          with open(f"{dir}/event_data.json","w",encoding="UTF-8") as f:
+            f.write(json.dumps(event_data,ensure_ascii=False,indent=4))
+          await bot.send_message(message.chat.id,"Создано!")
+          del event_creators[str(message.chat.id)]
+      else:
+        event_data = {
+          "name": event_creator[1],
+          "text": message.text
+        }
+        with open(f"{dir}/event_data.json","w",encoding="UTF-8") as f:
+          f.write(json.dumps(event_data,ensure_ascii=False,indent=4))
+        await bot.send_message(message.chat.id,"Создано!")
+        del event_creators[str(message.chat.id)]
+      return
+
+  if Type == "text":
+    if "!шар" in message.text: await ball(message=message)
+    if "!пред" in message.text: await sendWarning(message=message)
+    if message.text == "!ранг": await userRang(message=message)
+    if message.text.lower() == None and message.caption == None: return
+    if message.text.lower() in config["user_commands"]["getHomeworkCommands"]:await get_homework(message=message)
+    if message.text.lower() in config["user_commands"]["getScheduleCommands"]:await getSchedule(message=message)
+    if message.text.lower() in config["user_commands"]["getPhotosCommands"]:await get_photo(message=message)
+    if message.text.lower() in config["user_commands"]["getFilesCommands"]:await get_file(message=message)
+    if config["netSchool"]["enable"] and message.text.lower() in config["netSchool"]["getNetSchoolHomeworkCommands"]: await getNetschool(message=message)
+    if config["dnevnik_egov66"]["enable"] and message.text.lower() in config["dnevnik_egov66"]["getHomeworkCommands"]: await getDnevnikEgov66(message=message)
+    if message.text.lower() in config["user_commands"]["GetEventsCommands"]:await get_events(message=message)
+    if message.chat.id in config["moderators"]:
+      if message.text.lower() in config["moderatorCommands"]["SetScheduleCommands"]:await setSchedule(message=message)
+      if message.text.lower() in config["moderatorCommands"]["SetHomeworkCommands"]:await set_homework(message=message)
+      if message.text.lower() in config["moderatorCommands"]["CreateEventCommands"]:await create_event(message=message)
+      if message.text.lower() in config["moderatorCommands"]["DeleteEventCommands"]:await delete_event(message=message)
+
+    if message.chat.id == config["administrator"]:
+      if message.text.lower() in config["administratorCommands"]["getUsersCommands"]:await usersLog(message=message)
+      if message.text.lower() in config["administratorCommands"]["getLogCommands"]:await printLog(message=message)
+      if message.text.lower() in config["administratorCommands"]["getConfigCommands"]:await get_config(message=message)
+      if message.text.lower() in config["administratorCommands"]["getBlackListCommands"]:await send_blacklist(message=message)
+
+    if message.from_user.id in config["moderators"] and message.chat.id == config["chat"]:
+      if message.text.lower() in config["moderatorCommands"]["PinMessageCommands"]: await pin_message(message=message)
+      if message.text.lower() in config["moderatorCommands"]["UnpinMessageCommands"]: await unpin_message(message=message)
+      if message.text.lower() in config["moderatorCommands"]["UnpinMessagesCommands"]: await unpin_all_messages(message=message)
+
+    if message.chat.id != config["chat"]:
+      if message.text == "❤️":await secret1(message=message) # Посхалка
+      if message.text == "Я сома неотвратимость":await secret2(message=message) # Посхалка  
+      if message.text.lower() in config["user_commands"]["CreateRemindCommands"]:await create_remind(message=message)
+      if message.text.lower() in config["user_commands"]["ListRemindsCommands"]:await list_reminds(message=message)
+      if message.text.lower() in config["user_commands"]["DeleteRemindCommands"]:await delete_remind(message=message)
+      if message.chat.id in config["moderators"]:
+        if message.text.lower() in config["moderatorCommands"]["CreateClassRemindCommands"]: await create_remind_for_all(message=message)
+        if message.text.lower() in config["moderatorCommands"]["ListClassRemindsCommands"]: await list_reminds_for_all(message=message)
+        if message.text.lower() in config["moderatorCommands"]["DeleteClassRemindCommands"]: await delete_remind_for_all(message=message)
+
+    if message.chat.id == config["chat"] and message.from_user.id in config["moderators"]:
+      lastMessages[message.from_user.id] = message.id
 
 @bot.callback_query_handler(lambda call: True)
 async def keyboard(call):
-  global sets,setc,setsh
+  global sets, setc, setsh, reminds, homework
 
   if call.message:
     data = call.data.split("/")
     if data[0] == "sethw":
+      if data[1] == "cancel":
+        sets = None
+        await bot.edit_message_text(chat_id=call.message.chat.id,message_id=call.message.message_id,text="Отмена действия!")
+        return
       sets = [call.message,data[1],call.message.chat.id]
       if data[1]+"dir" in os.listdir("photos"):
         shutil.rmtree(f"photos/{data[1]}dir")
-      await bot.edit_message_text(chat_id=call.message.chat.id,message_id=call.message.message_id,text=data[1])
-    if data[0] == "setc":
-      setc = data[1]
-      await bot.edit_message_text(chat_id=call.message.chat.id,message_id=call.message.message_id,text=config[data[1]])
+      if data[1]+"dir" in os.listdir("documents"):
+        shutil.rmtree(f"documents/{data[1]}dir")
+      keyboard = telebot.types.InlineKeyboardMarkup(row_width=2)
+      keyboard.add(telebot.types.InlineKeyboardButton("- Отмена -",callback_data=f"sethw/cancel"))
+      await bot.edit_message_text(chat_id=call.message.chat.id,message_id=call.message.message_id,text=data[1],reply_markup=keyboard)
+
     if data[0] == "delhwl":
       del homework[data[1]]
       set_hw()
       await bot.edit_message_text(chat_id=call.message.chat.id,message_id=call.message.message_id,text="👍")
       await bot.send_message(call.message.chat.id,"Готово!")
+
     if data[0] == "setshl":
       setsh[0]  = data[1]
       await bot.edit_message_text(message_id=setsh[1],text="Какой кбинет?",chat_id=setsh[2])
+
     if data[0] == "delshl":
       scheduleLessons.remove(data[1])
       set_schl()
       await bot.edit_message_text(chat_id=call.message.chat.id,message_id=call.message.message_id,text="👍")
       await bot.send_message(call.message.chat.id,"Готово!")
+
     if data[0] == "getPh":
       l = data[1]
       await bot.delete_message(call.message.chat.id,call.message.message_id)
@@ -596,17 +1184,171 @@ async def keyboard(call):
         phsfs.append(telebot.types.InputMediaPhoto(media=open(f"photos/{l}/{i}","rb"),caption=(l[:len(l)-3] if i == "photo0.png" else None)))
       await bot.send_media_group(call.message.chat.id,phsfs)
 
+    if data[0] == "delete_remind":
+      if data[1] == "cancel":
+        await bot.edit_message_text(chat_id=call.message.chat.id,message_id=call.message.message_id,text="Отмена действия!")
+        return
+      elif data[1] == "all":
+        to_r = []
+        for remind in reminds:
+          if remind["user"] == call.message.chat.id:
+            to_r.append(remind)
+        for tor in to_r:
+          reminds.remove(tor)
+        await bot.edit_message_text(chat_id=call.message.chat.id,message_id=call.message.message_id,text=f"Удалено {len(to_r)} напоминаний!")
+      else:
+        reminds.pop(int(data[1]))
+        await bot.edit_message_text(chat_id=call.message.chat.id,message_id=call.message.message_id,text=f"Удалено!")
+      set_reminds()
+
+    if data[0] == "delete_remind_for_all":
+      if data[1] == "cancel":
+        await bot.edit_message_text(chat_id=call.message.chat.id,message_id=call.message.message_id,text="Отмена действия!")
+        return
+      elif data[1] == "all":
+        to_r = []
+        for remind in reminds:
+          if remind["user"] == config["chat"]:
+            to_r.append(remind)
+        for tor in to_r:
+          reminds.remove(tor)
+        await bot.edit_message_text(chat_id=call.message.chat.id,message_id=call.message.message_id,text=f"Удалено {len(to_r)} напоминаний!")
+      else:
+        reminds.pop(int(data[1]))
+        await bot.edit_message_text(chat_id=call.message.chat.id,message_id=call.message.message_id,text=f"Удалено!")
+      set_reminds()
+
+    if data[0] == "get_event":
+      if data[1] == "close":
+        await bot.delete_message(call.message.chat.id,call.message.message_id)
+        return
+      dir = data[1]
+      with open(f"events/{dir}/event_data.json",encoding="UTF_8") as f:
+        event_data = json.loads(f.read())
+      name = event_data["name"]
+      text = event_data["text"]
+      res = f"*{name}*" + (f" \n\n {text}" if text != "" else "")
+      listdir = os.listdir(f"events/{dir}")
+      if len(listdir) == 1:
+        await bot.send_message(call.message.chat.id,res)
+      else:
+        l = data[1]
+        phsfs =[]
+        if l == "exit":return
+        for i in os.listdir(f"events/{dir}"):
+          if i == "event_data.json":continue
+          phsfs.append(telebot.types.InputMediaPhoto(media=open(f"events/{dir}/{i}","rb"),caption=(res if i == "photo0.png" else None)))
+        await bot.send_media_group(call.message.chat.id,phsfs)
+      await bot.delete_message(call.message.chat.id,call.message.message_id)
+
+    if data[0] == "delete_event":
+      if data[1] == "all":
+        for dir in os.listdir("events"):
+          shutil.rmtree(f"events\\{dir}")
+        await bot.edit_message_text(chat_id=call.message.chat.id,message_id=call.message.message_id,text="Удалены все объявления!")
+        return
+      elif data[1] == "close":
+        await bot.edit_message_text(chat_id=call.message.chat.id,message_id=call.message.message_id,text="Отмена действия!")
+        return
+      dir = data[1]
+      shutil.rmtree(f"events\\{dir}")
+      await bot.edit_message_text(chat_id=call.message.chat.id,message_id=call.message.message_id,text="Удалено!")
+
+    if data[0] == "dnevnikEgov66":
+      if data[1] == "close":
+        await bot.delete_message(chat_id=call.message.chat.id,message_id=call.message.message_id)
+        return
+      day = int(data[1])
+      key = telebot.types.InlineKeyboardMarkup(row_width=4)
+      key.add(telebot.types.InlineKeyboardButton("<3",callback_data=f"dnevnikEgov66/{day-3}"),
+              telebot.types.InlineKeyboardButton("<",callback_data=f"dnevnikEgov66/{day-1}"),
+              telebot.types.InlineKeyboardButton(">",callback_data=f"dnevnikEgov66/{day+1}"),
+              telebot.types.InlineKeyboardButton("3>",callback_data=f"dnevnikEgov66/{day+3}"),
+              telebot.types.InlineKeyboardButton("<7",callback_data=f"dnevnikEgov66/{day-7}"),
+              telebot.types.InlineKeyboardButton("<5",callback_data=f"dnevnikEgov66/{day-5}"),
+              telebot.types.InlineKeyboardButton("5>",callback_data=f"dnevnikEgov66/{day+5}"),
+              telebot.types.InlineKeyboardButton("7>",callback_data=f"dnevnikEgov66/{day+7}"))
+      hw_raw = await dnevnikEgov66.getDayHomework(day)
+      date = hw_raw["date"]
+      hw = f"*{date}*\n\n"
+      for i,lesson in enumerate(hw_raw["homework"]):
+        name = lesson["name"]
+        text = lesson["text"]
+        hw += f"*{name}*\n`{text}`\n\n"
+        if lesson["files"] != []:key.add(telebot.types.InlineKeyboardButton(f"*[{i}] {name}*",callback_data=f"dnevnikEgov66download/{date}/{i}"))
+      if call.message.chat.id in config["moderators"]:key.add(telebot.types.InlineKeyboardButton("- Записать -",callback_data=f"dnevnikEgov66toBase/0/{date}"))
+      key.add(telebot.types.InlineKeyboardButton("- Закрыть -",callback_data="dnevnikEgov66/close"))
+      await bot.edit_message_text(chat_id=call.message.chat.id,message_id=call.message.message_id,text=hw,reply_markup=key)
+
+  if data[0] == "dnevnikEgov66download":
+    date = data[1]
+    index = int(data[2])
+    hw_raw = await dnevnikEgov66.getDateHomework(date)
+    hw_lesson_files = hw_raw["homework"][index]["files"]
+    lesson_name = hw_raw["homework"][index]["name"]
+    for file in hw_lesson_files:
+      fileo = await dnevnikEgov66.getFile(file["id"],"temp/"+file["name"])
+      obj = BytesIO(fileo)
+      obj.name = file["name"]
+      await bot.send_document(call.message.chat.id, obj, caption=f"`{date}` *{lesson_name}*")
+
+  if data[0] == "dnevnikEgov66toBase":
+    index = int(data[1])
+    date = data[2]
+    if index == 0:
+      hw_raw = await dnevnikEgov66.getDateHomework(date)
+      hw_lessons = hw_raw["homework"]
+      key = telebot.types.InlineKeyboardMarkup()
+      for i,lesson in enumerate(hw_lessons):
+        name = lesson["name"]
+        key.add(telebot.types.InlineKeyboardButton(f"*{name}*",callback_data=f"dnevnikEgov66toBase/1/{date}/{i}"))
+      await bot.edit_message_text(chat_id=call.message.chat.id,message_id=call.message.message_id,text="Из какого предмета?",reply_markup=key)
+    elif index == 1:
+      li = data[3]
+      key = telebot.types.InlineKeyboardMarkup()
+      for i,lesson in enumerate(homework.keys()):
+        key.add(telebot.types.InlineKeyboardButton(f"*{lesson}*",callback_data=f"dnevnikEgov66toBase/2/{date}/{li}/{i}"))
+      await bot.edit_message_text(chat_id=call.message.chat.id,message_id=call.message.message_id,text="В какой предмет?",reply_markup=key)
+    elif index == 2:
+      hw_raw = await dnevnikEgov66.getDateHomework(date)
+      hw_lesson = hw_raw["homework"][int(data[3])]
+      lesson_name = list(homework.keys())[int(data[4])]
+      if lesson_name+"dir" in os.listdir("documents"):
+        shutil.rmtree(f"documents/{lesson_name}dir")
+      if hw_lesson["files"] != []:os.mkdir(f"documents/{lesson_name}dir")
+      for file in hw_lesson["files"]:
+        file_name = file["name"]
+        async with aiofiles.open(f"documents/{lesson_name}dir/{file_name}","wb") as f:
+          await f.write(await dnevnikEgov66.getFile(file["id"]))
+      text = hw_lesson["text"]
+      homework[lesson_name] = f"`{text}`" + (" /files" if f"{lesson_name}dir" in os.listdir("documents") else "")
+      await bot.edit_message_text(chat_id=call.message.chat.id,message_id=call.message.message_id,text="👍")
+      await bot.send_message(call.message.chat.id,"Готово!")
+      set_hw()
+
+  if data[0] == "getFile":
+      l = data[1]
+      await bot.delete_message(call.message.chat.id,call.message.message_id)
+      if l == "exit":return
+      for i in os.listdir(f"documents/{l}"):
+        async with aiofiles.open(f"documents/{l}/{i}","rb") as f:
+          fileo = await f.read()
+          obj = BytesIO(fileo)
+          obj.name = i
+          lesson_name = l[:len(l)-3]
+          await bot.send_document(call.message.chat.id, obj, caption=f"*{lesson_name}*")
+      
 old_date = datetime.datetime.now() - datetime.timedelta(days=1)
 
 async def tick():
-  global old_date
+  global old_date, reminds
   date = datetime.datetime.now()
-  if date.hour>=config["birthdayHour"] and old_date.day != date.day:
+  if old_date.day != date.day and date.hour>=config["tickHour"]:
     old_date = date
     dm = ("0" if len(str(date.day))==1 else "")+str(date.day)
     m = ("0" if len(str(date.month))==1 else "")+str(date.month)
     d = f"{dm}.{m}"
-    tomorow = datetime.datetime.now() + datetime.timedelta(days=1)
+    tomorow = date + datetime.timedelta(days=1)
     mt = ("0" if len(str(tomorow.month))==1 else "")+str(tomorow.month)
     dmt = ("0" if len(str(tomorow.day))==1 else "")+str(tomorow.day)
     dt = f"{dmt}.{mt}"
@@ -618,6 +1360,27 @@ async def tick():
         await bot.send_message(config["birthdayAdministrator"],f"Здравствуйте, напоминаю что завтра день рождения у *{name}*!")
       if birthday["date"] == d:
         await bot.send_message(config["chat"],f"Сегодня день рождения у *{name}*! Поздравляем!!!")
+        await bot.send_message(config["birthdayAdministrator"],f"Здравствуйте, напоминаю что сегодня день рождения у *{name}*!")
+
+    get_reminds()
+    if reminds != []:
+      remindsToRemove = []
+      for i,remind in enumerate(reminds):
+        text = remind["text"]
+        if d == remind["date"]:
+          await bot.send_message(remind["user"],f"Напоминаю! *{text}*!")
+          remindsToRemove.append(i)
+        else:
+          for day in remind["days"]:
+            date_tomorow = date + datetime.timedelta(days=day)
+            dmd = ("0" if len(str(date_tomorow.day))==1 else "")+str(date_tomorow.day)
+            md = ("0" if len(str(date_tomorow.month))==1 else "")+str(date_tomorow.month)
+            dd = f"{dmd}.{md}"
+            if dd == remind["date"]:
+              await bot.send_message(remind["user"],f"Напоминаю через {day} дня! *{text}*!")
+              break
+      for i,index in enumerate(remindsToRemove):reminds.pop(index-i)
+      set_reminds()
 
 bot.programm_tick_function = tick
 asyncio.run(bot.polling(non_stop=True))

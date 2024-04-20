@@ -2,3 +2,4 @@ asyncio
 datetime
 netschoolapi
 aiohttp
+aiofiles
