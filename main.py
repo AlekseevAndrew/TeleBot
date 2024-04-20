@@ -275,7 +275,7 @@ async def clearLog(message):
 @bot.message_handler(commands=["version"])
 async def version(message):
   if user(message):return
-  await bot.send_message(message.chat.id,"4.0")
+  await bot.send_message(message.chat.id,"4.0.1")
 
 @bot.message_handler(commands=["users"])
 async def usersLog(message):
@@ -1287,7 +1287,7 @@ async def keyboard(call):
     hw_lesson_files = hw_raw["homework"][index]["files"]
     lesson_name = hw_raw["homework"][index]["name"]
     for file in hw_lesson_files:
-      fileo = await dnevnikEgov66.getFile(file["id"],"temp/"+file["name"])
+      fileo = await dnevnikEgov66.getFile(file["id"])
       obj = BytesIO(fileo)
       obj.name = file["name"]
       await bot.send_document(call.message.chat.id, obj, caption=f"`{date}` *{lesson_name}*")
